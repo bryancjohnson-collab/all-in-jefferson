@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>All In Jefferson</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Luckiest+Guy&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css?v=74">
+  <script type="importmap">
+    { "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    } }
+  </script>
+</head>
+<body>
+  <canvas id="scene"></canvas>
+
+  <div id="hud" hidden>
+    <div class="hud-top">
+      <div class="panel meter-panel">
+        <div id="fire-label" class="label">FIRE</div>
+        <div class="meter"><div id="fire-fill" class="fill"></div><div class="hot-line"></div></div>
+      </div>
+      <div class="panel title-panel"><img class="hud-logo" src="assets/logo.png" alt="All In Jefferson"></div>
+      <div class="panel clock-panel">
+        <div id="clock" class="clock">9:00 PM</div>
+        <div class="sub">DAWN AT 5:30</div>
+      </div>
+    </div>
+    <div class="hud-bottom">
+      <div class="panel stat-panel"><span class="label">WOOD</span> <span id="wood-count">0</span></div>
+      <div class="panel stat-panel"><span class="label">GAS</span> <span id="gas-count">0</span> LEFT</div>
+      <div id="bottle-chip" class="panel stat-panel bottle-chip" hidden><span class="label">BOTTLE</span> Space at the fire</div>
+      <div id="music-chip" class="panel stat-panel music-chip">MUSIC ON  (M)</div>
+      <div id="message" class="panel message-panel"></div>
+      <div class="panel stat-panel"><span class="label">YOU ARE</span> <span id="player-name"></span></div>
+    </div>
+    <div id="wind" class="panel wind-panel" hidden></div>
+    <div id="banner" class="banner" hidden></div>
+    <div id="errbox" class="errbox" hidden></div>
+  </div>
+
+  <div id="bubbles"></div>
+
+  <div id="start" class="title">
+    <div class="title-top">
+      <div class="title-kicker">JEFFERSON, NY</div>
+      <img class="title-logo" src="assets/logo.png" alt="All In Jefferson">
+    </div>
+    <div class="title-bottom">
+      <button id="start-btn" class="title-start">PRESS SPACE TO CHOOSE YOUR CAMPER</button>
+      <div class="title-help title-tagline">Keep the fire going until dawn. The guys get cold, they go to bed. <span class="nowrap">Fire goes out, the bear comes.</span></div>
+    </div>
+    <div id="title-board" class="title-board"></div>
+  </div>
+
+  <div id="select" class="lobby" hidden>
+    <div class="lobby-top">
+      <img class="lobby-logo" src="assets/logo.png" alt="All In Jefferson">
+      <div class="lobby-heading">CHOOSE YOUR CAMPER</div>
+    </div>
+    <button id="prev-btn" class="lobby-arrow left" aria-label="Previous camper">&#9664;</button>
+    <button id="next-btn" class="lobby-arrow right" aria-label="Next camper">&#9654;</button>
+    <div class="lobby-card">
+      <div id="lobby-name" class="lobby-name"></div>
+      <div id="lobby-quote" class="lobby-quote"></div>
+      <div id="lobby-emote" class="lobby-emote"></div>
+    </div>
+    <div class="lobby-bottom">
+      <div class="lobby-rows">
+        <div class="lobby-row">
+          <div class="row-label">1. PICK YOUR CAMPER <span class="row-sub">arrows or click</span></div>
+          <div id="pick" class="pick"></div>
+        </div>
+        <div class="lobby-row">
+          <div class="row-label">2. HOW HARD</div>
+          <div class="diff">
+            <button class="diff-btn" data-diff="easy"><b>EASY</b><span>22 logs, 4 gas, slow burn</span></button>
+            <button class="diff-btn on" data-diff="camp"><b>CAMP</b><span>16 logs, 3 gas, the real thing</span></button>
+            <button class="diff-btn" data-diff="hell"><b>HELL'S</b><span>12 logs, 2 gas, fast burn</span></button>
+          </div>
+        </div>
+      </div>
+      <button id="play-btn" class="title-start">3. START THE NIGHT</button>
+      <div class="title-help">Arrows walk, Space does the thing you are standing next to. The game points at anything you have not found yet.</div>
+    </div>
+  </div>
+
+  <div id="end" class="overlay" hidden>
+    <div class="card">
+      <h1 id="end-title">SUNDAY</h1>
+      <div id="end-body"></div>
+      <button id="restart-btn">Next camper</button>
+    </div>
+  </div>
+
+  <script type="module" src="src/game.js?v=74"></script>
+</body>
+</html>
