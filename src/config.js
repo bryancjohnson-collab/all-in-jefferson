@@ -144,8 +144,32 @@ export const PLAYER = {
   reach: 1.6,
   // Touch only (a thumb stick is less precise than keys); no other gameplay numbers change. Phone controls, docs/PHONE.md.
   reachTouch: 2.1,
+  // Per-item touch overrides (Bryan's phone play, 09/26: "the poker was tough to
+  // get"). The poker is a thin cylinder and easy to miss with a thumb, so it gets
+  // the most generous radius; everything else still uses reachTouch above.
+  reachTouchStick: 3.0,
   minRadius: 1.3,
   maxRadius: 7.2,
+};
+
+// Phone-only gentle camera follow (Bryan: "cam in a little", then a follow so the
+// wood pile/gas/cooler/stick come fully into view). Works in screen space:
+// every frame the player's feet+head and the current action target's whole
+// footprint+top (not single ground points — a whole figure and a whole prop
+// need real clearance, not just their base) are projected to screen pixels and
+// checked against a safe box (topSafePx from the top, edgePx from every other
+// screen edge, plus a box around the action button in whichever corner it's
+// actually rendered, mirrored to the opposite corner for the stick, each with
+// buttonMarginPx of clearance) — see updateCamera. At rest everything already
+// sits inside the box, so nothing moves; maxShift is a hard clamp against a
+// pathological correction, logged if it ever actually leaves something unsafe.
+// Desktop never reads this.
+export const PHONE_FOLLOW = {
+  damp: 2.4,
+  topSafePx: 110,
+  edgePx: 70,
+  buttonMarginPx: 40,
+  maxShift: 9.5,
 };
 
 export const LAYOUT = {

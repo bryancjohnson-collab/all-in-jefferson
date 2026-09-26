@@ -1,11 +1,11 @@
 // All In Jefferson, prototype 1: the fire loop on a flat plane with box campers.
 import * as THREE from "three";
-import { NIGHT_SECONDS, NIGHT_START_MIN, NIGHT_END_MIN, MIDNIGHT_MIN, FIRE, WIND, CAMPER, BEAR, PLAYER, LAYOUT, POWERUPS, EVENTS, HOT_LEVELS, SMOKE, DIFFICULTY, HINTS } from "./config.js?v=89";
-import { initSound, coyoteYip, whoosh, growl, bang, startCrackle, setCrackle, footstep, logLand, pokeSound, buzz, playRiff, startLoop, stopMusic, playDawn, toggleMusic, musicEnabled, bearTheme, bearRideTheme, bearWomp, duckMusic } from "./sound.js?v=89";
-import { campers as roster, pickPlayer, commitPick, snacks, emotes, comments, coolerComments } from "./campers.js?v=89";
-import { buildWorld, makeCamperMesh, makeChairMesh, makeLogMesh, setSeated, stepWalkCycle, stepBearWalk, SEATED_DROP } from "./world.js?v=89";
-import { updateFireVisuals } from "./fire.js?v=89";
-import { initShareCardButtons } from "./sharecard.js?v=89";
+import { NIGHT_SECONDS, NIGHT_START_MIN, NIGHT_END_MIN, MIDNIGHT_MIN, FIRE, WIND, CAMPER, BEAR, PLAYER, LAYOUT, POWERUPS, EVENTS, HOT_LEVELS, SMOKE, DIFFICULTY, HINTS, PHONE_FOLLOW } from "./config.js?v=119";
+import { initSound, coyoteYip, whoosh, growl, bang, startCrackle, setCrackle, footstep, logLand, pokeSound, buzz, playRiff, startLoop, stopMusic, playDawn, toggleMusic, musicEnabled, bearTheme, bearRideTheme, bearWomp, duckMusic } from "./sound.js?v=119";
+import { campers as roster, pickPlayer, commitPick, snacks, emotes, comments, coolerComments } from "./campers.js?v=119";
+import { buildWorld, makeCamperMesh, makeChairMesh, makeLogMesh, setSeated, stepWalkCycle, stepBearWalk, SEATED_DROP } from "./world.js?v=119";
+import { updateFireVisuals } from "./fire.js?v=119";
+import { initShareCardButtons } from "./sharecard.js?v=119";
 
 const canvas = document.getElementById("scene");
 const world = buildWorld(canvas);
@@ -30,6 +30,17 @@ glassNeck.position.y = 0.28 + 0.07;
 glassBottleMesh.add(glassBody, glassNeck);
 glassBottleMesh.visible = false;
 scene.add(glassBottleMesh);
+
+// Touch-only "you'll act on this" ring (built here for the same reason as the
+// two props above), Bryan's phone play, 09/26: "the poker was tough to get".
+// Deliberately its own mesh, separate from world.js's hintArrow (that one marks
+// things the player has not found yet; this marks whatever the action button
+// is about to do right now, and the two can be visible at once).
+const actionRing = new THREE.Mesh(new THREE.TorusGeometry(0.6, 0.06, 8, 28), new THREE.MeshBasicMaterial({ color: "#ffd23c", transparent: true, opacity: 0.85 }));
+actionRing.rotation.x = Math.PI / 2;
+actionRing.position.y = 0.05;
+actionRing.visible = false;
+scene.add(actionRing);
 
 const ui = {
   fireFill: document.getElementById("fire-fill"),
@@ -75,6 +86,15 @@ const ui = {
   actionBtn: document.getElementById("action-btn"),
   tWood: document.getElementById("t-wood"),
   tGas: document.getElementById("t-gas"),
+  // Touch speech strip (Bryan, 09/26 follow-up: "always at the top, away from
+  // the gameplay"), and the one-time iPhone Safari full-screen tip.
+  speechStrip: document.getElementById("speech-strip"),
+  speechLine0: document.getElementById("speech-line-0"),
+  speechLine1: document.getElementById("speech-line-1"),
+  speechMarker0: document.getElementById("speech-marker-0"),
+  speechMarker1: document.getElementById("speech-marker-1"),
+  iosTip: document.getElementById("ios-tip"),
+  iosTipBtn: document.getElementById("ios-tip-btn"),
 };
 const stickKnobEl = ui.stick.querySelector(".stick-knob");
 
@@ -144,6 +164,12 @@ let spacePressed = false;
 // the existing desktop CSS or camera code needs to change.
 let isTouch = (("ontouchstart" in window) || navigator.maxTouchPoints > 0);
 try { if (matchMedia("(pointer: coarse)").matches === false) isTouch = false; } catch (e) { /* ignore */ }
+// iPhone/iPad Safari cannot put a page into full screen (Apple's rule) and gets
+// the one-time tip below instead; every other touch device gets requestFullscreen.
+const isIOSDevice = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+function isStandaloneLaunch() {
+  try { return window.navigator.standalone === true || matchMedia("(display-mode: standalone)").matches || matchMedia("(display-mode: fullscreen)").matches; } catch (e) { return false; }
+}
 function setTouchMode(on) { if (isTouch === on) return; isTouch = on; updateTouchCopy(); }
 function applyTouchClass() { document.body.classList.toggle("touch", isTouch); }
 // The title button says "Press Space" for keyboard players; there is no Space on a phone.
@@ -170,22 +196,40 @@ setControlsSwapped(controlsSwapped());
 // Direction only (see updatePlayer: the vector is normalized then scaled to the
 // same top speed as the arrow keys either way), tracked by pointerId so it keeps
 // working at the same time as a separate finger on the action button.
-const touchStick = { id: null, x: 0, y: 0, originX: 0, originY: 0 };
+const touchStick = { id: null, x: 0, y: 0, originX: 0, originY: 0, downAt: 0 };
 const STICK_RADIUS = 55;
-let fullscreenRequested = false;
+// Full screen (Bryan's phone play: "browser tabs reduce the screen space too
+// much"). No one-shot latch: the only guard is "are we already full screen",
+// so a tap can always ask again if the phone (or the player, or Android's own
+// gesture) dropped out of it mid-night, without ever retrying on its own or
+// looping. iOS Safari can't do page full screen at all (Apple's rule); the
+// title-screen tip below covers that platform instead.
 function tryRequestFullscreen() {
-  if (fullscreenRequested || !isTouch) return;
-  fullscreenRequested = true;
-  const ua = navigator.userAgent;
-  const isIOS = /iP(hone|ad|od)/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-  if (isIOS) return;
+  if (!isTouch || isIOSDevice || document.fullscreenElement) return;
   const el = document.documentElement;
-  if (el.requestFullscreen) el.requestFullscreen().catch(() => { /* not available, ignore */ });
+  if (el.requestFullscreen) el.requestFullscreen().catch(() => { /* blocked this time; the next tap tries again */ });
 }
+// Runs on the very first touch anywhere, title tap included, and on every tap
+// after that (cheap no-op once already full screen), which is what makes the
+// "re-request after it drops" behavior work without any extra bookkeeping.
+window.addEventListener("pointerdown", tryRequestFullscreen, { capture: true, passive: true });
+
+// One-time iPhone Safari tip (docs/PHONE.md follow-up): since Safari can't go
+// full screen on its own, point at Hide Toolbar / Add to Home Screen instead.
+// Lives inside #start in index.html, so it is only ever visible on the title
+// screen and never mid-night; localStorage remembers it was dismissed.
+const IOS_TIP_KEY = "aij-ios-tip-seen";
+function iosTipSeen() { try { return localStorage.getItem(IOS_TIP_KEY) === "1"; } catch (e) { return false; } }
+if (isTouch && isIOSDevice && !isStandaloneLaunch() && !iosTipSeen()) ui.iosTip.hidden = false;
+ui.iosTipBtn.addEventListener("click", () => {
+  try { localStorage.setItem(IOS_TIP_KEY, "1"); } catch (e) { /* ignore */ }
+  ui.iosTip.hidden = true;
+});
 function stickPointerDown(e) {
   if (touchStick.id !== null) return;
   touchStick.id = e.pointerId;
   touchStick.originX = e.clientX; touchStick.originY = e.clientY;
+  touchStick.downAt = performance.now();
   touchStick.x = 0; touchStick.y = 0;
   ui.stick.hidden = false;
   ui.stick.style.left = `${e.clientX}px`;
@@ -207,8 +251,14 @@ function stickPointerMove(e) {
 }
 function stickPointerUp(e) {
   if (e.pointerId !== touchStick.id) return;
+  // A quick tap with little movement, inside the stick zone, is tap-to-go
+  // instead of a (null) drag; a real drag never gets here fast enough or
+  // straight enough to qualify. See attemptTapToGo below.
+  const heldMs = performance.now() - touchStick.downAt;
+  const moved = Math.hypot(e.clientX - touchStick.originX, e.clientY - touchStick.originY);
   touchStick.id = null; touchStick.x = 0; touchStick.y = 0;
   ui.stick.hidden = true;
+  if (heldMs < 260 && moved < 14) attemptTapToGo(e.clientX, e.clientY);
   e.preventDefault();
 }
 ui.stickZone.addEventListener("pointerdown", stickPointerDown);
@@ -216,10 +266,41 @@ ui.stickZone.addEventListener("pointermove", stickPointerMove);
 ui.stickZone.addEventListener("pointerup", stickPointerUp);
 ui.stickZone.addEventListener("pointercancel", stickPointerUp);
 
+// Tap-to-go over open canvas (outside the stick zone and the action button,
+// which have their own pointer handling above/below): a quick tap on an
+// interactable elsewhere on screen walks the player there the same way.
+let canvasTapDown = null;
+canvas.addEventListener("pointerdown", (e) => { canvasTapDown = { x: e.clientX, y: e.clientY, t: performance.now() }; }, { passive: true });
+canvas.addEventListener("pointerup", (e) => {
+  if (!canvasTapDown) return;
+  const heldMs = performance.now() - canvasTapDown.t;
+  const moved = Math.hypot(e.clientX - canvasTapDown.x, e.clientY - canvasTapDown.y);
+  canvasTapDown = null;
+  if (heldMs < 260 && moved < 14) attemptTapToGo(e.clientX, e.clientY);
+}, { passive: true });
+
 // One big action button: does exactly what Space does (see the hint/label logic
 // in updatePlayer). A separate pointerId from the stick, so both work together.
 function setActionLabel(text) { ui.actionBtn.textContent = text; ui.actionBtn.classList.toggle("idle", !text); }   // idle: nothing to do here, button dims
 ui.actionBtn.addEventListener("pointerdown", (e) => { spacePressed = true; tryRequestFullscreen(); e.preventDefault(); });
+
+// Touch speech strip state (see updateTouchSpeech/resetTouchSpeech far below):
+// declared here, ahead of buildCrew's own call further down, since buildCrew
+// runs at module load time and resetTouchSpeech reads these immediately.
+const CANON_SPEECH_MATCHES = ["What the hell was that", "No Glass in the fire", "Beeeees", "Gentlemen"];
+const SPEECH_DON_COLOR = "#c9a86a", SPEECH_ALAN_COLOR = "#ffb347";
+const speechLanes = [null, null];
+const speechBacklog = [];
+const SPEECH_BACKLOG_MAX = 6;
+let speechTickerLastText = "";
+// Phone camera follow state (see updateCamera/actionCornerBoxes far below): also
+// declared here ahead of buildCrew for the same reason as the speech state above.
+const phoneFollowXZ = new THREE.Vector2(0, 0);
+let lastActionTarget = null;
+// Roughly a camper's own head height (HEAD_TOP in world.js is ~1.72, a hat adds
+// a little more) — used to track the top of the player's own figure, not just
+// their feet, when keeping the touch follow's tracked points on screen.
+const PLAYER_HEAD_Y = 1.85;
 
 // Player and crew. Rebuilt when a different camper is picked on the title screen.
 let player = null;
@@ -228,7 +309,11 @@ function buildCrew(data) {
   if (player) scene.remove(player.mesh);
   campers.forEach((c) => { scene.remove(c.mesh); scene.remove(c.chairMesh); if (c.bubble.el) c.bubble.el.remove(); });
   ui.bubbles.innerHTML = "";
-  player = { data, mesh: makeCamperMesh(data), pos: new THREE.Vector3(0, 0, 4.6), carrying: null, carryMesh: null, bubble: { text: "", until: 0, cls: "" }, stickMesh: null };
+  resetTouchSpeech();
+  actionRing.visible = false;
+  lastActionTarget = null;
+  phoneFollowXZ.set(0, 0);
+  player = { data, mesh: makeCamperMesh(data), pos: new THREE.Vector3(0, 0, 4.6), carrying: null, carryMesh: null, bubble: { text: "", until: 0, cls: "" }, stickMesh: null, autoWalkTarget: null };
   player.mesh.position.copy(player.pos);
   scene.add(player.mesh);
   ui.playerName.textContent = data.name;
@@ -267,7 +352,7 @@ function buildCrew(data) {
     if (c.state === "away") mesh.visible = false;
     return c;
   });
-  window.__aij = { state, player, campers, keys, renderer, press: () => { spacePressed = true; }, speed: (window.__aij && window.__aij.speed) || 1, cfg: { FIRE, WIND, CAMPER, BEAR, EVENTS, PLAYER, LAYOUT, SMOKE, POWERUPS },
+  window.__aij = { state, player, campers, keys, renderer, camera, press: () => { spacePressed = true; }, speed: (window.__aij && window.__aij.speed) || 1, cfg: { FIRE, WIND, CAMPER, BEAR, EVENTS, PLAYER, LAYOUT, SMOKE, POWERUPS },
     // Headless stepping for tuning runs: advances the logic without waiting for animation frames
     step: (dt, n) => { for (let i = 0; i < n && state.phase === "playing"; i++) { update(dt); if (window.__aij.bot) window.__aij.bot(dt); } return state.phase; },
     start: () => { if (state.phase === "start") goToLobby(); if (state.phase === "select") startNight(); return state.phase; } };
@@ -481,15 +566,174 @@ window.addEventListener("keydown", (e) => {
 
 const GAME_CAM = new THREE.Vector3(0, 12.5, 14);
 const GAME_LOOK = new THREE.Vector3(0, 0, 0);
-// Closer phone camera (docs/PHONE.md): tuned so the cabin and trailer clear the
-// top strip while the ring and campers still fill the height. Keyboard devices
-// never see this (isTouch stays false), so GAME_CAM/GAME_LOOK are untouched.
-const PHONE_CAM = new THREE.Vector3(0, 9.5, 9.5);
-const PHONE_LOOK = new THREE.Vector3(0, 0, 0.8);
+// Closer phone camera (Bryan's phone play, 09/26: "stuff on screen feels small,
+// cam in a little"). Pulled in from the original (0, 9.5, 9.5) looking at
+// (0, 0, 0.8) by about 1.45x, which puts campers and the fire at roughly that
+// much bigger on screen. The look target also moved from +0.8 to -0.3 (deeper
+// into the ring, away from the player's own starting spot): a pure zoom around
+// the old look point pushed the far side of the chair ring past the top HUD
+// strip, since it was already close to that edge before zooming; recentering
+// on a point slightly past the fire brings the far chairs back down into frame
+// with the same zoom, while the near side just loses a little empty ground that
+// was never doing anything. Verified in the browser that every chair, the fire
+// and every interactable clear the top strip at rest. Keyboard devices never
+// see this (isTouch stays false), so GAME_CAM/GAME_LOOK are untouched.
+const PHONE_CAM = new THREE.Vector3(0, 6.55, 5.7);
+const PHONE_LOOK = new THREE.Vector3(0, 0, -0.3);
 const LOBBY_SPOT = new THREE.Vector3(1.9, 0, 4.3);   // forward of the empty chair so emotes do not clip it (Bryan, 09/25)
 const LOBBY_CAM = new THREE.Vector3(1.0, 2.3, 10.3);   // camera and look moved with the spot, same framing
 const LOBBY_LOOK = new THREE.Vector3(1.4, 1.0, 3.9);
 const camLook = new THREE.Vector3(0, 1, 0);
+// phoneFollowXZ (declared earlier, alongside the other buildCrew-adjacent state)
+// is the current eased pan offset, shared by both camera.position and camLook so
+// the framing shifts as one piece; lastActionTarget (also declared earlier) is
+// the world (x,z) the action ring is currently pointing at, set at the end of
+// updatePlayer's hint/label block each frame (null when the button wouldn't do
+// anything right now) — updateCamera below keeps it on screen too, alongside
+// the player, so walking up to an interactable brings it into view.
+
+// ---------- Screen-space follow geometry (touch only) ----------
+// Projects a world (x,y,z) point to CSS-pixel screen coordinates using the
+// camera's CURRENT matrices. Mirrors the projection math the bubbles/markers
+// already use elsewhere in this file. y defaults to ground level.
+function projectToScreenPx(x, z, y = 0) {
+  const v = new THREE.Vector3(x, y, z).project(camera);
+  return { x: (v.x + 1) / 2 * window.innerWidth, y: (1 - v.y) / 2 * window.innerHeight };
+}
+// The two corner boxes to keep clear: the action button's own footprint
+// (wherever it actually renders — left or right, already accounting for the
+// controls-side toggle and safe-area insets, since this reads its real
+// bounding box) and a mirrored footprint in the opposite corner, standing in
+// for the floating stick, which only exists in the DOM while a finger is down.
+// Both get buttonMarginPx of extra clearance in neededScreenCorrection below,
+// not baked in here, so this stays the button's true rect. Recomputed each
+// frame since it's just one getBoundingClientRect() call.
+function actionCornerBoxes() {
+  const w = window.innerWidth, h = window.innerHeight;
+  const r = ui.actionBtn.getBoundingClientRect();
+  const onRight = r.left > w / 2;
+  const btnBox = onRight ? { left: r.left, right: w, top: r.top, bottom: h } : { left: 0, right: r.right, top: r.top, bottom: h };
+  const stickBox = onRight ? { left: 0, right: r.width, top: r.top, bottom: h } : { left: w - r.width, right: w, top: r.top, bottom: h };
+  return { btnBox, stickBox, topSafe: PHONE_FOLLOW.topSafePx };
+}
+// How far (in screen px, signed) a point needs to move to get back onto screen
+// with real breathing room — edgePx from every side, clear of the top strip,
+// and buttonMarginPx clear of both corner boxes — whichever of those asks for
+// the most correction on each axis wins (so, say, a point that is both past
+// the right edge AND inside the button's corner box doesn't have one
+// requirement quietly overwritten by the other). Zero in both axes when the
+// point is already safe — this IS the "nothing moves at rest" deadzone, rather
+// than a separate distance check. skipBottom exists for the player's own feet:
+// the base framing has always let the player's own feet crop at the bottom
+// edge (a third-person camera doesn't need to show your own feet, and this was
+// already the accepted look before this fix) — holding THAT to the same 70px
+// bottom margin as everything else would pan the camera even at rest, failing
+// "at rest, nothing moves." Left/right/button/stick/top clearance still apply
+// to the player's feet exactly like any other tracked point.
+function neededScreenCorrection(x, y, boxes, skipBottom) {
+  const w = window.innerWidth, h = window.innerHeight;
+  const edge = PHONE_FOLLOW.edgePx, bm = PHONE_FOLLOW.buttonMarginPx;
+  let dx = 0, dy = 0;
+  const consider = (cdx, cdy) => { if (Math.abs(cdx) > Math.abs(dx)) dx = cdx; if (Math.abs(cdy) > Math.abs(dy)) dy = cdy; };
+  // Plain "stay on screen, with margin" first: a target the camera hasn't
+  // panned toward yet (e.g. a tap-to-go destination just beyond the frame)
+  // needs this before the corner/top rules below even apply.
+  if (x < edge) consider(edge - x, 0);
+  else if (x > w - edge) consider((w - edge) - x, 0);
+  if (!skipBottom && y > h - edge) consider(0, (h - edge) - y);
+  if (y < boxes.topSafe) consider(0, boxes.topSafe + 8 - y);
+  for (const box of [boxes.btnBox, boxes.stickBox]) {
+    const left = box.left - bm, right = box.right + bm, top = box.top - bm, bottom = box.bottom + bm;
+    if (x <= left || x >= right || y <= top || y >= bottom) continue;
+    // Always escape horizontally, toward screen center, never vertically. Both
+    // corner boxes are anchored to the bottom of the screen and open upward, so
+    // "the nearer edge is up" is often numerically true for a point near their
+    // top — but sliding it up only clears THIS box's rectangle on paper while
+    // leaving it just as deep into the button/stick's actual horizontal
+    // footprint, which is what a real thumb (or eye) cares about. Horizontal
+    // pushes also combine cleanly across several tracked points (all toward
+    // the same center), where a mix of horizontal-for-one/vertical-for-another
+    // fought each other and stalled short of clearing everything.
+    const onLeftEdge = box.left === 0;
+    const pushX = onLeftEdge ? (right + 4 - x) : (left - 4 - x);
+    consider(pushX, 0);
+  }
+  return { dx, dy };
+}
+// Measures where world point (px,py,pz) lands on screen at a given follow
+// offset, and how fast that screen position moves per unit of follow — a value
+// plus a numerical Jacobian — by nudging the camera rig to that offset and two
+// nearby ones and reading pixels back each time. The camera is restored to its
+// real, live position/look before returning, so none of this is ever visible.
+function measureAtFollow(px, pz, fx, fz, py = 0) {
+  const eps = 0.4;
+  const realPos = camera.position.clone(), realLook = camLook.clone();
+  function at(afx, afz) {
+    camera.position.set(PHONE_CAM.x + afx, PHONE_CAM.y, PHONE_CAM.z + afz);
+    camera.lookAt(PHONE_LOOK.x + afx, PHONE_LOOK.y, PHONE_LOOK.z + afz);
+    camera.updateMatrixWorld(true);
+    return projectToScreenPx(px, pz, py);
+  }
+  const p0 = at(fx, fz);
+  const px1 = at(fx + eps, fz);
+  const pz1 = at(fx, fz + eps);
+  camera.position.copy(realPos); camLook.copy(realLook); camera.lookAt(camLook); camera.updateMatrixWorld(true);
+  return { p0, dxdfx: (px1.x - p0.x) / eps, dydfx: (px1.y - p0.y) / eps, dxdfz: (pz1.x - p0.x) / eps, dydfz: (pz1.y - p0.y) / eps };
+}
+// The total pan (from a hypothetical zero, not incremental from wherever the
+// camera currently sits) that would bring every point in `points` (the player,
+// and the current action target when there is one) into the safe box at once.
+// Each round finds whichever tracked point is currently worst off (at the
+// shared pan built up so far) and Newton-corrects the shared pan for that one;
+// since correcting for the worst point moves everything else on screen too
+// (same pan, same camera), a few rounds converge on one pan that satisfies
+// both rather than blending two separately-solved answers whose x and z were
+// only ever each other's partner — mixing an x from one with a z from the
+// other doesn't actually re-verify as safe for either point. A perspective
+// camera's screen response to a pan is not quite linear over a large
+// correction either, which is the other reason this re-linearizes at its own
+// running answer instead of taking one step and stopping. Solving from zero
+// every frame, rather than nudging wherever the offset currently sits, is what
+// makes the camera ease back to the base framing on its own once nothing needs
+// correcting any more (Bryan: "at rest by the fire, nothing moves" — and the
+// same mechanism un-does a pan once the player leaves whatever needed it).
+let lastFollowWarnAt = -100;
+function solveFollowForPoints(points, boxes) {
+  let fx = 0, fz = 0;
+  for (let i = 0; i < 16; i++) {
+    let worstMag = 0, worstM = null, worstCorr = null;
+    for (const p of points) {
+      const m = measureAtFollow(p.x, p.z, fx, fz, p.y || 0);
+      const corr = neededScreenCorrection(m.p0.x, m.p0.y, boxes, p.skipBottom);
+      const mag = Math.hypot(corr.dx, corr.dy);
+      if (mag > worstMag) { worstMag = mag; worstM = m; worstCorr = corr; }
+    }
+    if (!worstM) return { x: fx, z: fz }; // every tracked point already safe at this pan
+    const det = worstM.dxdfx * worstM.dydfz - worstM.dxdfz * worstM.dydfx;
+    if (!Number.isFinite(det) || Math.abs(det) < 1e-6) break;
+    fx += (worstM.dydfz * worstCorr.dx - worstM.dxdfz * worstCorr.dy) / det;
+    fz += (worstM.dxdfx * worstCorr.dy - worstM.dydfx * worstCorr.dx) / det;
+    // maxShift is a hard safety clamp (a pathological Jacobian, or a point that
+    // truly cannot be satisfied, must not fling the camera arbitrarily far);
+    // clamp inside the loop too so a mid-loop overshoot doesn't throw off the
+    // next round's linearization point.
+    const len = Math.hypot(fx, fz);
+    if (len > PHONE_FOLLOW.maxShift) { fx = fx / len * PHONE_FOLLOW.maxShift; fz = fz / len * PHONE_FOLLOW.maxShift; }
+  }
+  // Ran out of rounds without every point reporting safe — log it (throttled)
+  // rather than silently shipping a pan that still leaves something exposed.
+  if (state.t - lastFollowWarnAt > 2) {
+    lastFollowWarnAt = state.t;
+    let worstMag = 0;
+    for (const p of points) {
+      const m = measureAtFollow(p.x, p.z, fx, fz, p.y || 0);
+      const corr = neededScreenCorrection(m.p0.x, m.p0.y, boxes, p.skipBottom);
+      worstMag = Math.max(worstMag, Math.hypot(corr.dx, corr.dy));
+    }
+    if (worstMag > 1) console.warn(`[AIJ] phone follow could not fully clear the safe area (residual ${worstMag.toFixed(0)}px); maxShift may be too small for this spot.`);
+  }
+  return { x: fx, z: fz };
+}
 let titleClock = 0;
 function updateCamera(dt) {
   if (state.phase === "start") {
@@ -504,12 +748,51 @@ function updateCamera(dt) {
     camLook.lerp(LOBBY_LOOK, Math.min(1, dt * 2.2));
     keyLight.intensity += (34 - keyLight.intensity) * Math.min(1, dt * 3);
     animateEmote(player, titleClock);
+  } else if (isTouch) {
+    keyLight.intensity += (0 - keyLight.intensity) * Math.min(1, dt * 3);
+    // Screen-space follow (Bryan's phone play, 09/26 follow-up: the poker and
+    // wood pile were landing right under the action button; then, at a real
+    // figure's and prop's actual size, still half off-edge/jammed on the button
+    // even though the single ground point checked out — a whole body and a
+    // whole item need real clearance, not just their base). Every frame, solve
+    // (see solveFollowForPoints) for the one pan that brings the player's feet
+    // AND head, and the current action target's whole footprint AND top, inside
+    // the safe box (actionCornerBoxes/neededScreenCorrection above) at once.
+    // Solving from an absolute zero-pan baseline each frame (rather than
+    // nudging wherever the offset currently sits) is what lets the camera ease
+    // back to the base framing on its own the moment nothing needs correcting —
+    // "at rest, nothing moves," and a pan un-does itself once the player leaves
+    // whatever needed it. The desired offset itself is heavily damped, so a
+    // correction never snaps.
+    const boxes = actionCornerBoxes();
+    const trackedPoints = [
+      // Feet are allowed to crop below the bottom edge at rest (a pre-existing,
+      // already-accepted framing choice from before this follow system existed),
+      // so skip the bottom-edge check for this point only — left/right/top/
+      // button/stick checks still apply to it.
+      { x: player.pos.x, z: player.pos.z, y: 0, skipBottom: true },
+      { x: player.pos.x, z: player.pos.z, y: PLAYER_HEAD_Y },
+    ];
+    if (lastActionTarget) {
+      const t = lastActionTarget, r = t.radius;
+      trackedPoints.push(
+        { x: t.x - r, z: t.z - r, y: 0 }, { x: t.x + r, z: t.z - r, y: 0 },
+        { x: t.x - r, z: t.z + r, y: 0 }, { x: t.x + r, z: t.z + r, y: 0 },
+        { x: t.x, z: t.z, y: t.height },
+      );
+    }
+    const want = solveFollowForPoints(trackedPoints, boxes);
+    let wantX = want.x, wantZ = want.z;
+    const wantLen = Math.hypot(wantX, wantZ);
+    if (wantLen > PHONE_FOLLOW.maxShift) { wantX = wantX / wantLen * PHONE_FOLLOW.maxShift; wantZ = wantZ / wantLen * PHONE_FOLLOW.maxShift; }
+    phoneFollowXZ.x += (wantX - phoneFollowXZ.x) * Math.min(1, dt * PHONE_FOLLOW.damp);
+    phoneFollowXZ.y += (wantZ - phoneFollowXZ.y) * Math.min(1, dt * PHONE_FOLLOW.damp);
+    camera.position.lerp(new THREE.Vector3(PHONE_CAM.x + phoneFollowXZ.x, PHONE_CAM.y, PHONE_CAM.z + phoneFollowXZ.y), Math.min(1, dt * 1.8));
+    camLook.lerp(new THREE.Vector3(PHONE_LOOK.x + phoneFollowXZ.x, PHONE_LOOK.y, PHONE_LOOK.z + phoneFollowXZ.y), Math.min(1, dt * 1.8));
   } else {
     keyLight.intensity += (0 - keyLight.intensity) * Math.min(1, dt * 3);
-    const camTarget = isTouch ? PHONE_CAM : GAME_CAM;
-    const lookTarget = isTouch ? PHONE_LOOK : GAME_LOOK;
-    camera.position.lerp(camTarget, Math.min(1, dt * 1.8));
-    camLook.lerp(lookTarget, Math.min(1, dt * 1.8));
+    camera.position.lerp(GAME_CAM, Math.min(1, dt * 1.8));
+    camLook.lerp(GAME_LOOK, Math.min(1, dt * 1.8));
   }
   camera.lookAt(camLook);
   if (state.shake > 0) {
@@ -690,15 +973,22 @@ function animateBearWalk(dt) {
 }
 
 // ---------- Player ----------
+const ORIGIN_XZ = { x: 0, z: 0 }; // the fire pit's center, for the touch action ring below
 function updatePlayer(dt) {
   const v = new THREE.Vector3();
-  if (keys.has("arrowup") || keys.has("w")) v.z -= 1;
-  if (keys.has("arrowdown") || keys.has("s")) v.z += 1;
-  if (keys.has("arrowleft") || keys.has("a")) v.x -= 1;
-  if (keys.has("arrowright") || keys.has("d")) v.x += 1;
-  // Floating stick (touch): direction only, same top speed either way since v is
-  // normalized then scaled below, exactly like the keyboard's -1/0/1 components.
-  if (touchStick.id !== null) { v.x += touchStick.x; v.z += touchStick.y; }
+  // Tap-to-go (touch only, see attemptTapToGo): a stick drag always wins, so the
+  // very act of touching the stick zone cancels any pending auto-walk.
+  if (touchStick.id !== null) player.autoWalkTarget = null;
+  const autoWalking = isTouch && !!player.autoWalkTarget;
+  if (!autoWalking) {
+    if (keys.has("arrowup") || keys.has("w")) v.z -= 1;
+    if (keys.has("arrowdown") || keys.has("s")) v.z += 1;
+    if (keys.has("arrowleft") || keys.has("a")) v.x -= 1;
+    if (keys.has("arrowright") || keys.has("d")) v.x += 1;
+    // Floating stick (touch): direction only, same top speed either way since v is
+    // normalized then scaled below, exactly like the keyboard's -1/0/1 components.
+    if (touchStick.id !== null) { v.x += touchStick.x; v.z += touchStick.y; }
+  }
   // Smoke trap: downwind of the fire during a gust, inside the stream
   const w = state.wind;
   let inSmoke = false;
@@ -715,7 +1005,18 @@ function updatePlayer(dt) {
   }
 
   let movedDist = 0;
-  if (v.lengthSq() > 0) {
+  if (autoWalking) {
+    // Same pit-routing as the campers (walkToward/FIRE_KEEPOUT), so an auto-walk
+    // never cuts through the fire the way a straight manual line could.
+    const spd = (player.carrying ? PLAYER.carrySpeed : PLAYER.speed) * (inSmoke ? SMOKE.slow : 1);
+    state.stepClock += dt;
+    if (state.stepClock >= (player.carrying ? 0.42 : 0.32)) { state.stepClock = 0; footstep(); }
+    const arrived = walkToward(player.mesh, player.autoWalkTarget, spd * dt);
+    movedDist = player.pos.distanceTo(player.mesh.position);
+    player.pos.copy(player.mesh.position);
+    if (arrived) player.autoWalkTarget = null;
+  } else if (v.lengthSq() > 0) {
+    player.autoWalkTarget = null; // any manual input also clears a pending auto-walk
     v.normalize().multiplyScalar((player.carrying ? PLAYER.carrySpeed : PLAYER.speed) * (inSmoke ? SMOKE.slow : 1) * dt);
     state.stepClock += dt;
     if (state.stepClock >= (player.carrying ? 0.42 : 0.32)) { state.stepClock = 0; footstep(); }
@@ -740,34 +1041,85 @@ function updatePlayer(dt) {
   // carried) purely from how far the player actually moved this frame.
   stepWalkCycle(player.mesh, movedDist, dt, !!player.carrying || state.stick.held);
 
-  // Slightly larger interaction radius on touch only (docs/PHONE.md); on a
-  // keyboard device isTouch is always false, so reach === PLAYER.reach, unchanged.
+  // Slightly larger interaction radius on touch only (docs/PHONE.md), with a
+  // few per-item overrides (Bryan's phone play, 09/26: "the poker was tough to
+  // get" — it is a thin cylinder and needs the most generous radius of all of
+  // them). On a keyboard device isTouch is always false, so every reach below
+  // falls back to PLAYER.reach, unchanged.
   const reach = isTouch ? PLAYER.reachTouch : PLAYER.reach;
+  const reachStick = isTouch ? PLAYER.reachTouchStick : PLAYER.reach;
+  const distStick = dist2(player.pos, LAYOUT.stick);
+  const distWood = dist2(player.pos, LAYOUT.woodPile);
   const nearFire = player.pos.length() < PLAYER.minRadius + reach;
-  const nearWood = dist2(player.pos, LAYOUT.woodPile) < reach;
+  const nearWood = distWood < reach;
   const nearGas = dist2(player.pos, LAYOUT.gasCan) < reach;
-  const nearStick = !state.stick.held && dist2(player.pos, LAYOUT.stick) < reach;
+  // The poker's generous radius reaches all the way to the wood pile it leans
+  // against, so it only wins there when it is genuinely the nearer of the two —
+  // otherwise standing at the pile would show GRAB GANDALF instead of GRAB WOOD.
+  const nearStick = !state.stick.held && distStick < reachStick && distStick <= distWood;
   const nearCooler = dist2(player.pos, LAYOUT.cooler) < reach + 0.2;
   const nearDon = donMesh.visible && !player.carrying && dist2(player.pos, donMesh.position) < reach + 0.6;
   ui.bottle.hidden = !(state.bottle.given && !state.bottle.used);
 
   // Contextual hint, and the action button's label (docs/PHONE.md): built from
-  // the exact same branches so the two can never say different things.
-  let hint = "", label = "";
-  if (player.carrying === "log") { hint = nearFire ? "Space: drop the log on the fire" : "Carry the log to the fire"; label = nearFire ? "ADD WOOD" : "WOOD"; }
-  else if (player.carrying === "gas") { hint = nearFire ? "Space: pour the gas (careful)" : nearGas ? "Space: put the gas back" : "Carry the gas to the fire"; label = nearFire ? "GAS" : nearGas ? "PUT BACK" : "GAS"; }
-  else if (player.carrying === "beer") { hint = nearFire ? (state.fire.level > FIRE.hot ? "Space: toss the full beer in. It's hot enough." : "Space: toss it in (it needs Hell's Anus to go off)") : "Carry the full beer to the fire. Don't drink it."; label = nearFire ? "TOSS BEER" : "BEER"; }
-  else if (nearCooler && state.beer.available && !(nearWood && state.wood > 0)) { hint = "Space: grab a full, unopened beer"; label = "BEER"; }
-  else if (nearStick) { hint = "Space: grab the poker stick"; label = "GRAB GANDALF"; }
-  else if (nearWood) { hint = state.wood > 0 ? "Space: grab a log" : "The wood pile is empty"; label = state.wood > 0 ? "GRAB WOOD" : "EMPTY"; }
-  else if (nearGas) { hint = state.gas > 0 ? "Space: grab the gas can" : "The gas can is empty"; label = state.gas > 0 ? "GRAB GAS" : "EMPTY"; }
-  else if (nearDon) { hint = state.don.gaveLog ? "Don M has nothing else for you." : "Space: see what Don M wants"; label = "TALK"; }
-  else if (nearFire && state.bottle.given && !state.bottle.used) { hint = "Space: take a swig and blow it into the fire"; label = "BREATHE FIRE"; }
-  else if (nearFire && !state.stick.held) { hint = "You need the poker stick. It's leaning by the wood pile."; label = "GET POKER"; }
-  else if (nearFire) { hint = state.fire.pokeCd > 0 ? "Poker is hot, wait a second" : "Space: poke the fire"; label = state.fire.pokeCd > 0 ? "WAIT" : "POKE"; }
-  if (inSmoke) { hint = "*cough* You can't do anything in the smoke."; label = "COUGH"; }
+  // the exact same branches so the two can never say different things. targetPos
+  // (touch only) is whatever the button is about to act on, ringed on the
+  // ground below so the player can see it before pressing (Bryan: "show what
+  // you'll act on"); it is only set when the button would actually do something.
+  // targetHeight and targetFollowRadius are only used for the touch follow's
+  // extent tracking below (how big a box to keep clear) — they don't affect the
+  // ring, which stays a generous, easy-to-see hit-affordance sized by
+  // targetRadius as before. targetFollowRadius instead approximates each prop's
+  // actual footprint (the fire ring's stones, the log stack, the can, the
+  // cooler, ...), since using the ring's own inflated radius for the follow
+  // made the camera work to clear far more width than the real object needs.
+  let hint = "", label = "", targetPos = null, targetRadius = 0.8, targetFollowRadius = 0.5, targetHeight = 0.9;
+  if (player.carrying === "log") {
+    hint = nearFire ? "Space: drop the log on the fire" : "Carry the log to the fire"; label = nearFire ? "ADD WOOD" : "WOOD";
+    if (nearFire) { targetPos = ORIGIN_XZ; targetRadius = 2.5; targetFollowRadius = 1.3; targetHeight = 1.6; }
+  } else if (player.carrying === "gas") {
+    hint = nearFire ? "Space: pour the gas (careful)" : nearGas ? "Space: put the gas back" : "Carry the gas to the fire"; label = nearFire ? "GAS" : nearGas ? "PUT BACK" : "GAS";
+    if (nearFire) { targetPos = ORIGIN_XZ; targetRadius = 2.5; targetFollowRadius = 1.3; targetHeight = 1.6; } else if (nearGas) { targetPos = LAYOUT.gasCan; targetFollowRadius = 0.35; targetHeight = 0.8; }
+  } else if (player.carrying === "beer") {
+    hint = nearFire ? (state.fire.level > FIRE.hot ? "Space: toss the full beer in. It's hot enough." : "Space: toss it in (it needs Hell's Anus to go off)") : "Carry the full beer to the fire. Don't drink it."; label = nearFire ? "TOSS BEER" : "BEER";
+    if (nearFire) { targetPos = ORIGIN_XZ; targetRadius = 2.5; targetFollowRadius = 1.3; targetHeight = 1.6; }
+  } else if (nearCooler && state.beer.available && !(nearWood && state.wood > 0)) {
+    hint = "Space: grab a full, unopened beer"; label = "BEER"; targetPos = LAYOUT.cooler; targetFollowRadius = 0.5; targetHeight = 0.6;
+  } else if (nearStick) {
+    hint = "Space: grab the poker stick"; label = "GRAB GANDALF"; targetPos = LAYOUT.stick; targetRadius = 0.65; targetFollowRadius = 0.25; targetHeight = 1.3;
+  } else if (nearWood) {
+    hint = state.wood > 0 ? "Space: grab a log" : "The wood pile is empty"; label = state.wood > 0 ? "GRAB WOOD" : "EMPTY";
+    if (state.wood > 0) { targetPos = LAYOUT.woodPile; targetFollowRadius = 0.75; targetHeight = 0.75; }
+  } else if (nearGas) {
+    hint = state.gas > 0 ? "Space: grab the gas can" : "The gas can is empty"; label = state.gas > 0 ? "GRAB GAS" : "EMPTY";
+    if (state.gas > 0) { targetPos = LAYOUT.gasCan; targetFollowRadius = 0.35; targetHeight = 0.8; }
+  } else if (nearDon) {
+    hint = state.don.gaveLog ? "Don M has nothing else for you." : "Space: see what Don M wants"; label = "TALK";
+    if (!state.don.gaveLog) { targetPos = donMesh.position; targetRadius = 0.9; targetFollowRadius = 0.5; targetHeight = 1.85; }
+  } else if (nearFire && state.bottle.given && !state.bottle.used) {
+    hint = "Space: take a swig and blow it into the fire"; label = "BREATHE FIRE"; targetPos = ORIGIN_XZ; targetRadius = 2.5; targetFollowRadius = 1.3; targetHeight = 1.6;
+  } else if (nearFire && !state.stick.held) {
+    hint = "You need the poker stick. It's leaning by the wood pile."; label = "GET POKER";
+  } else if (nearFire) {
+    hint = state.fire.pokeCd > 0 ? "Poker is hot, wait a second" : "Space: poke the fire"; label = state.fire.pokeCd > 0 ? "WAIT" : "POKE";
+    if (state.fire.pokeCd <= 0) { targetPos = ORIGIN_XZ; targetRadius = 2.5; targetFollowRadius = 1.3; targetHeight = 1.6; }
+  }
+  if (inSmoke) { hint = "*cough* You can't do anything in the smoke."; label = "COUGH"; targetPos = null; }
   setHint(hint);
   setActionLabel(label);
+  if (isTouch) {
+    actionRing.visible = !!targetPos;
+    if (targetPos) {
+      actionRing.position.set(targetPos.x, 0.05, targetPos.z);
+      actionRing.scale.setScalar(targetRadius / 0.6);
+      lastActionTarget = { x: targetPos.x, z: targetPos.z, radius: targetFollowRadius, height: targetHeight };
+    } else {
+      lastActionTarget = null;
+    }
+  } else {
+    actionRing.visible = false;
+    lastActionTarget = null;
+  }
 
   if (!spacePressed) return;
   spacePressed = false;
@@ -1106,6 +1458,48 @@ function walkToward(mesh, target, step) {
   mesh.position.x = next.x; mesh.position.z = next.z;
   mesh.lookAt(target.x, 0, target.z);
   return false;
+}
+
+// ---------- Tap-to-go (touch only) ----------
+// A quick tap (short, little finger movement — see the callers in the stick-zone
+// and canvas listeners below) on an interactable walks the player straight to it,
+// routing around the fire pit the same way walkToward/FIRE_KEEPOUT do for the
+// campers above (docs/PHONE.md follow-up, Bryan: "the poker was tough to get").
+// A generous, per-item hit radius against the ground-plane tap point, not a
+// precise mesh raycast, so the thin poker stick is easy to hit.
+const tapRaycaster = new THREE.Raycaster();
+const tapGroundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+const TAP_HIT_RADIUS = { woodPile: 1.1, gasCan: 1.1, cooler: 1.1, stick: 1.7, don: 1.3 };
+function attemptTapToGo(clientX, clientY) {
+  if (!isTouch || state.phase !== "playing" || state.paused) return;
+  const ndc = new THREE.Vector2((clientX / window.innerWidth) * 2 - 1, -(clientY / window.innerHeight) * 2 + 1);
+  tapRaycaster.setFromCamera(ndc, camera);
+  const hit = new THREE.Vector3();
+  if (!tapRaycaster.ray.intersectPlane(tapGroundPlane, hit)) return;
+
+  // Tapping at or inside the fire ring: walk to the nearest spot at the ring
+  // edge, at the tapped angle, rather than at the (unreachable) center.
+  if (Math.hypot(hit.x, hit.z) < FIRE_KEEPOUT + 0.4) {
+    const ang = Math.atan2(hit.x, hit.z);
+    const r = PLAYER.minRadius + 1.0; // just inside the nearFire reach, well clear of FIRE_KEEPOUT
+    player.autoWalkTarget = new THREE.Vector3(Math.sin(ang) * r, 0, Math.cos(ang) * r);
+    return;
+  }
+
+  const candidates = [
+    { pos: LAYOUT.woodPile, r: TAP_HIT_RADIUS.woodPile },
+    { pos: LAYOUT.gasCan, r: TAP_HIT_RADIUS.gasCan },
+    { pos: LAYOUT.cooler, r: TAP_HIT_RADIUS.cooler },
+    { pos: LAYOUT.stick, r: TAP_HIT_RADIUS.stick, active: !state.stick.held },
+    { pos: donMesh.position, r: TAP_HIT_RADIUS.don, active: donMesh.visible && !player.carrying },
+  ];
+  let best = null, bestDist = Infinity;
+  candidates.forEach((c) => {
+    if (c.active === false) return;
+    const d = Math.hypot(hit.x - c.pos.x, hit.z - c.pos.z);
+    if (d < c.r && d < bestDist) { bestDist = d; best = c.pos; }
+  });
+  if (best) player.autoWalkTarget = new THREE.Vector3(best.x, 0, best.z);
 }
 
 // ---------- Events: cooler run, paper plate, coyotes ----------
@@ -1764,18 +2158,28 @@ function render(dt) {
     armR.rotation.x += (target - armR.rotation.x) * Math.min(1, dt * 14);
   }
 
-  // Bubbles
+  // Bubbles (desktop) / speech strip (touch, see updateTouchSpeech below)
   const w = window.innerWidth, h = window.innerHeight;
-  [...campers, player, state.don, state.alan].forEach((c) => {
-    if (!c.mesh) return;
-    if (c.bubble.until <= state.t || !c.bubble.text || !c.mesh.visible) { if (c.bubble.el) { c.bubble.el.remove(); c.bubble.el = null; } return; }
-    if (!c.bubble.el) { c.bubble.el = document.createElement("div"); ui.bubbles.appendChild(c.bubble.el); }
-    c.bubble.el.className = `bubble ${c.bubble.cls}`;
-    c.bubble.el.textContent = c.bubble.text;
-    const v = c.mesh.position.clone().add(new THREE.Vector3(0, 2.1, 0)).project(camera);
-    c.bubble.el.style.left = `${(v.x + 1) / 2 * w}px`;
-    c.bubble.el.style.top = `${(1 - v.y) / 2 * h}px`;
-  });
+  const bubbleActors = [...campers, player, state.don, state.alan];
+  if (isTouch) {
+    updateTouchSpeech(bubbleActors);
+  } else {
+    bubbleActors.forEach((c) => {
+      if (!c.mesh) return;
+      if (c.bubble.until <= state.t || !c.bubble.text || !c.mesh.visible) { if (c.bubble.el) { c.bubble.el.remove(); c.bubble.el = null; } return; }
+      if (!c.bubble.el) { c.bubble.el = document.createElement("div"); ui.bubbles.appendChild(c.bubble.el); }
+      c.bubble.el.className = `bubble ${c.bubble.cls}`;
+      c.bubble.el.textContent = c.bubble.text;
+      c.bubble.el.style.marginTop = "0px";
+      const v = c.mesh.position.clone().add(new THREE.Vector3(0, 2.1, 0)).project(camera);
+      c.bubble.el.style.left = `${(v.x + 1) / 2 * w}px`;
+      c.bubble.el.style.top = `${(1 - v.y) / 2 * h}px`;
+    });
+    // Overlap nudge (Bryan: "if two bubbles overlap, nudge one vertically"; the
+    // rest of desktop's bubbles are untouched). Touch never reaches this branch,
+    // since the speech strip above has no overlap to nudge in the first place.
+    nudgeOverlappingBubbles(bubbleActors);
+  }
 
   renderer.render(scene, camera);
 }
@@ -1811,6 +2215,145 @@ function updateSmoke(dt, level, hot) {
   }
 }
 
+// ---------- Desktop bubble overlap nudge ----------
+// If two campers' bubbles land on top of each other on screen, push the lower
+// one further up rather than letting them overlap. O(n^2) on at most ~10 actors,
+// desktop only (touch never has floating bubbles to begin with).
+function nudgeOverlappingBubbles(actors) {
+  const els = actors.map((c) => c.bubble && c.bubble.el).filter(Boolean);
+  for (let i = 0; i < els.length; i++) {
+    for (let j = i + 1; j < els.length; j++) {
+      const a = els[i].getBoundingClientRect(), b = els[j].getBoundingClientRect();
+      if (!(a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top)) continue;
+      const mover = a.top <= b.top ? els[j] : els[i];
+      const stay = mover === els[j] ? a : b;
+      const shift = (stay.bottom - mover.getBoundingClientRect().top) + 6;
+      mover.style.marginTop = `${parseFloat(mover.style.marginTop || "0") - shift}px`;
+    }
+  }
+}
+
+// ---------- Touch speech strip (Bryan, 09/26: "could the speech bubble always be
+// at the top, away from the gameplay?") ----------
+// Reads the exact same c.bubble.{text,until,cls} and state.message.{text,until}
+// that bubble()/pbubble()/say() already set everywhere else in the file, so none
+// of those call sites had to change. Two "lanes" show at most two lines at once;
+// new lines queue in speechBacklog (FIFO) and take a lane as one frees up, which
+// is what makes "queue briefly, or drop the oldest" and "canon/player lines are
+// never dropped" both fall out of the same simple mechanism: a canon/player entry
+// just waits in the backlog until a lane opens, instead of being deleted, while
+// backlog overflow (see pushSpeechLine) only ever prunes the droppable kind.
+function isCanonSpeechLine(text) { return CANON_SPEECH_MATCHES.some((m) => text.includes(m)); }
+function speechRelLuminance(hex) {
+  const c = hex.replace("#", "");
+  const r = parseInt(c.substr(0, 2), 16) / 255, g = parseInt(c.substr(2, 2), 16) / 255, b = parseInt(c.substr(4, 2), 16) / 255;
+  const lin = (v) => (v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4));
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+}
+// "His hat or shirt color, if it reads on the dark background" (Bryan): try the
+// cap, then the shirt, then fall back to the base HUD text color if neither is
+// light enough to read over the night sky.
+function speechSpeakerColor(data) {
+  if (!data) return "#f3e9d2";
+  const look = data.look || {};
+  for (const c of [look.cap, look.topColor, data.cap, data.shirt]) {
+    if (c && speechRelLuminance(c) > 0.24) return c;
+  }
+  return "#f3e9d2";
+}
+function pushSpeechLine(entry) {
+  entry.addedAt = state.t;
+  speechBacklog.push(entry);
+  while (speechBacklog.length > SPEECH_BACKLOG_MAX) {
+    const idx = speechBacklog.findIndex((l) => !l.canon && !l.isPlayer);
+    if (idx === -1) break; // everything left is protected; let the backlog run a little long rather than drop it
+    speechBacklog.splice(idx, 1);
+  }
+}
+function resetTouchSpeech() {
+  speechLanes[0] = speechLanes[1] = null;
+  speechBacklog.length = 0;
+  speechTickerLastText = "";
+  if (ui.speechMarker0) ui.speechMarker0.hidden = true;
+  if (ui.speechMarker1) ui.speechMarker1.hidden = true;
+}
+function updateTouchSpeech(actors) {
+  // 1. Detect new lines. bubble.until only changes when bubble()/pbubble() is
+  // called again with a fresh line, so comparing against the last-seen until is
+  // exactly "a new line just started," with no need to touch bubble() itself.
+  actors.forEach((c) => {
+    const b = c.bubble;
+    if (!b || b.until <= state.t || !b.text || b._speechSeen === b.until) return;
+    b._speechSeen = b.until;
+    const name = c === player ? player.data.name : c.data ? c.data.name : c === state.don ? "Don M" : "Alan";
+    const color = c === player || c.data ? speechSpeakerColor(c.data || player.data) : (c === state.don ? SPEECH_DON_COLOR : SPEECH_ALAN_COLOR);
+    const remaining = Math.max(1.2, b.until - state.t);
+    pushSpeechLine({ name, color, text: b.text, mesh: c.mesh, canon: isCanonSpeechLine(b.text), isPlayer: c === player, dur: remaining * 0.72 });
+  });
+  // The announcer ticker merges into the same strip, plain, no name (Bryan: "one
+  // place to read everything"). Same new-line detection trick, keyed off the text
+  // itself since state.message has no until-style identity of its own to diff.
+  if (state.message.until > state.t && state.message.text && state.message.text !== speechTickerLastText) {
+    speechTickerLastText = state.message.text;
+    const remaining = Math.max(1.2, state.message.until - state.t);
+    pushSpeechLine({ name: null, color: null, text: state.message.text, mesh: null, canon: false, isPlayer: false, isTicker: true, dur: remaining * 0.72 });
+  }
+  if (state.message.until <= state.t) speechTickerLastText = "";
+
+  // 2. Advance the two lanes: free up any whose time is up, then pull from the
+  // backlog into whatever lanes are open. Canon/player lines jump the backlog
+  // (still FIFO among themselves) so a busy stretch of ordinary chatter can
+  // never bury them for long — "never dropped" also means "shows up promptly."
+  for (let i = 0; i < 2; i++) {
+    if (speechLanes[i] && state.t - speechLanes[i].startedAt >= speechLanes[i].dur) speechLanes[i] = null;
+  }
+  for (let i = 0; i < 2; i++) {
+    if (!speechLanes[i] && speechBacklog.length) {
+      let idx = speechBacklog.findIndex((l) => l.canon || l.isPlayer);
+      if (idx === -1) idx = 0;
+      const entry = speechBacklog.splice(idx, 1)[0];
+      entry.startedAt = state.t;
+      speechLanes[i] = entry;
+    }
+  }
+
+  // 3. Render: newest lane on top.
+  const order = [speechLanes[0], speechLanes[1]].filter(Boolean).sort((a, b) => b.startedAt - a.startedAt);
+  renderSpeechRow(ui.speechLine0, order[0]);
+  renderSpeechRow(ui.speechLine1, order[1]);
+
+  // 4. Small glowing marker over whoever is currently showing a line.
+  renderSpeechMarker(ui.speechMarker0, speechLanes[0]);
+  renderSpeechMarker(ui.speechMarker1, speechLanes[1]);
+}
+function renderSpeechRow(el, entry) {
+  if (!el) return;
+  if (!entry) { el.classList.remove("show"); el.textContent = ""; return; }
+  const fading = state.t - entry.startedAt >= entry.dur - 0.4;
+  el.classList.toggle("ticker", !!entry.isTicker);
+  el.classList.toggle("show", !fading);
+  el.textContent = "";
+  if (!entry.isTicker && entry.name) {
+    const who = document.createElement("span");
+    who.className = "who";
+    who.style.color = entry.color || "#f3e9d2";
+    who.textContent = `${entry.name}: `;
+    el.appendChild(who);
+  }
+  el.appendChild(document.createTextNode(entry.text));
+}
+function renderSpeechMarker(el, lane) {
+  if (!el) return;
+  if (!lane || !lane.mesh || !lane.mesh.visible) { el.hidden = true; return; }
+  el.hidden = false;
+  el.style.background = lane.color || "#f3e9d2";
+  el.style.color = lane.color || "#f3e9d2"; // box-shadow uses currentColor
+  const w = window.innerWidth, h = window.innerHeight;
+  const v = lane.mesh.position.clone().add(new THREE.Vector3(0, 2.35, 0)).project(camera);
+  el.style.left = `${(v.x + 1) / 2 * w}px`;
+  el.style.top = `${(1 - v.y) / 2 * h}px`;
+}
+
 // ---------- Banner ----------
 let bannerTimer = null;
 function showBanner(text) {
@@ -1819,7 +2362,9 @@ function showBanner(text) {
   el.hidden = false;
   el.classList.remove("show"); void el.offsetWidth; el.classList.add("show");
   clearTimeout(bannerTimer);
-  bannerTimer = setTimeout(() => { el.hidden = true; }, 2600);
+  // Smaller and faster on phones (Bryan: "banners should also be ... fade
+  // faster"); the CSS animation-duration is shortened to match in styles.css.
+  bannerTimer = setTimeout(() => { el.hidden = true; }, isTouch ? 1700 : 2600);
 }
 
 // ---------- Leaderboard (this browser only) ----------

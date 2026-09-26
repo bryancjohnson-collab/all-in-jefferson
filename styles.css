@@ -198,16 +198,11 @@ body.touch .hud-bottom .panel:has(#player-name),
 body.touch #music-chip {
   display: none;
 }
-body.touch #message {
-  position: fixed;
-  left: 0; right: 0; top: calc(46px + env(safe-area-inset-top));
-  width: auto; max-width: none; margin: 0; padding: 0 16px;
-  background: none; border: none; box-shadow: none;
-  text-align: center; font-size: 15px; font-weight: 700;
-  text-shadow: 0 1px 3px #000, 0 0 8px #000;
-  white-space: normal; overflow: visible; text-overflow: clip;
-  z-index: 2;
-}
+/* The announcer line now lives in the speech strip instead (Bryan, 09/26:
+   "one place to read everything"), so the old standalone floating ticker is
+   hidden on touch rather than repositioned; #message is unchanged on desktop,
+   where it keeps showing as the normal boxed ticker panel it always was. */
+body.touch #message { display: none; }
 
 /* ---------- Bottom controls: floating stick, action button, WOOD/GAS chips ---------- */
 .stick-zone, .touch-stats, .action-btn { display: none; }
@@ -241,12 +236,12 @@ body.touch .action-btn {
 body.touch .action-btn.idle { opacity: 0.4; }
 body.touch.swap-controls .action-btn { right: auto; left: max(26px, env(safe-area-inset-left)); }
 body.touch .touch-stats {
-  display: flex; flex-direction: column; gap: 6px;
-  position: absolute; right: max(138px, calc(env(safe-area-inset-right) + 112px));
-  bottom: max(30px, env(safe-area-inset-bottom));
+  /* top-left under the pause button, out of the play area (the bottom corner hid the poker and wood pile) */
+  display: flex; flex-direction: row; gap: 6px;
+  position: absolute; left: max(16px, env(safe-area-inset-left));
+  top: calc(env(safe-area-inset-top) + 58px);
   z-index: 3; pointer-events: none;
 }
-body.touch.swap-controls .touch-stats { right: auto; left: max(138px, calc(env(safe-area-inset-left) + 112px)); }
 .t-chip {
   background: rgba(12,16,30,0.62); border: 1.5px solid rgba(243,233,210,0.6);
   border-radius: 9px; padding: 4px 10px; font: 700 13px "Trebuchet MS", sans-serif;
@@ -254,9 +249,70 @@ body.touch.swap-controls .touch-stats { right: auto; left: max(138px, calc(env(s
 }
 .t-chip i { font-style: normal; font-size: 9px; letter-spacing: 1.2px; opacity: 0.8; margin-right: 6px; }
 
-/* Larger bubbles and banners on phones */
-body.touch .bubble { font-size: 16px; padding: 8px 13px; max-width: 280px; }
-body.touch .banner { font-size: 44px; }
+/* Bubbles and banners on phones (Bryan, 09/26: "bubbles cover everything", then
+   "could the speech bubble always be at the top, away from the gameplay?"). On
+   touch the floating word bubbles are replaced entirely by the speech strip and
+   head markers below; #bubbles itself is never populated on touch (see
+   updateTouchSpeech in game.js) but is hidden here too as a belt-and-braces. */
+body.touch #bubbles { display: none; }
+body.touch .banner { font-size: 32px; }
+body.touch .banner.show { animation-duration: 1.7s; }
+
+/* ---------- Speech strip (touch only): camper/ticker lines stacked under the
+   top HUD strip, newest on top, at most two rows. Desktop keeps the floating
+   .bubble elements above (unchanged) and never touches this. ---------- */
+.speech-strip { display: none; }
+body.touch .speech-strip {
+  display: flex; flex-direction: column; gap: 4px;
+  position: fixed; left: 0; right: 0; top: calc(46px + env(safe-area-inset-top));
+  padding: 0 max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-area-inset-left));
+  align-items: center; z-index: 2; pointer-events: none;
+}
+.speech-line {
+  font: 700 13px "Trebuchet MS", sans-serif; letter-spacing: 0.01em;
+  color: #f3e9d2; text-align: center; max-width: 92vw;
+  text-shadow: 0 1px 3px #000, 0 0 8px #000;
+  background: rgba(10,14,26,0.4); border-radius: 8px; padding: 3px 10px;
+  opacity: 0; transform: translateY(-4px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.speech-line.show { opacity: 1; transform: translateY(0); }
+.speech-line .who { font-weight: 800; }
+.speech-line.ticker { font-weight: 600; font-style: italic; background: rgba(10,14,26,0.28); }
+@media (min-width: 620px) { .speech-line { font-size: 14px; } }
+
+/* Small glowing marker over whoever is currently showing a line in the strip
+   above, so it is clear who is talking without covering the fire or the ring
+   (it tracks that person's own head, wherever they are standing). */
+#speech-markers { position: fixed; inset: 0; pointer-events: none; z-index: 2; display: none; }
+body.touch #speech-markers { display: block; }
+.speech-marker {
+  position: absolute; width: 13px; height: 13px; margin: -7px 0 0 -7px;
+  border-radius: 50%; box-shadow: 0 0 7px 2px currentColor;
+  animation: speechMarkerPulse 1.1s ease-in-out infinite;
+}
+.speech-marker[hidden] { display: none; }
+@keyframes speechMarkerPulse { 0%, 100% { transform: scale(0.82); opacity: 0.7; } 50% { transform: scale(1.15); opacity: 1; } }
+
+/* ---------- iPhone Safari full-screen tip (title screen only) ---------- */
+/* Sits in the open gap between the logo and the start button/tagline (both of
+   which are themselves anchored to the top/bottom of a short landscape phone
+   screen) rather than pinned to an edge, so it never lands on top of either
+   one and blocks a real tap. Verified against #start-btn's own bounding box
+   in Playwright at 844x390 and 667x375. */
+.ios-tip {
+  position: fixed; left: 12px; right: 12px; top: 44%; transform: translateY(-50%);
+  z-index: 12; margin: 0 auto; max-width: 420px;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  background: rgba(20,28,48,0.92); border: 2px solid rgba(243,233,210,0.6); border-radius: 12px;
+  padding: 10px 14px; text-align: center;
+}
+.ios-tip[hidden] { display: none; }
+.ios-tip-text { font-size: 12px; line-height: 1.4; color: #f3e9d2; }
+.ios-tip-btn {
+  font: 800 12px "Trebuchet MS", sans-serif; letter-spacing: 0.05em; color: #1a1a1a;
+  background: #ff8c1a; border: 2px solid #ffd98a; border-radius: 8px; padding: 5px 16px; cursor: pointer;
+}
 
 /* ---------- Pause menu (all devices) ---------- */
 .pause-overlay { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; background: rgba(6,8,16,0.72); }
@@ -280,6 +336,16 @@ body.touch .banner { font-size: 44px; }
 .pmrow .pmbtn { flex: 1; font-size: 12px; padding: 9px 6px; }
 .controls-side { display: none; font-size: 12px; }
 body.touch .controls-side { display: block; }
+
+/* Standalone home-screen launch (docs/PHONE.md "confirm it truly fills the
+   screen, including the safe areas"): the game is landscape-only, so the notch
+   or rounded corner lands on the left or right edge, not the top. The gameplay
+   HUD already insets against it (see hud-top/action-btn/stick-zone above);
+   these do the same for the title and lobby screens' own edge-anchored bits. */
+body.touch .title-board { right: max(16px, env(safe-area-inset-right)); bottom: max(16px, env(safe-area-inset-bottom)); }
+body.touch .lobby-arrow.left { left: max(4vw, env(safe-area-inset-left)); }
+body.touch .lobby-arrow.right { right: max(4vw, env(safe-area-inset-right)); }
+body.touch .lobby-card { left: max(12vw, env(safe-area-inset-left)); }
 .howto-panel { margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(243,233,210,0.25); text-align: left; font-size: 13px; line-height: 1.45; color: rgba(243,233,210,0.9); }
 .howto-panel[hidden] { display: none; }
 .howto-panel p { margin: 0 0 8px; }

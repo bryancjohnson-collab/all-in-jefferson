@@ -6,7 +6,7 @@
   <title>All In Jefferson</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Luckiest+Guy&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=89">
+  <link rel="stylesheet" href="styles.css?v=119">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="assets/icon-180.png">
   <link rel="apple-touch-icon" href="assets/icon-180.png">
@@ -61,6 +61,14 @@
   </div>
 
   <div id="bubbles"></div>
+  <div id="speech-strip" class="speech-strip">
+    <div id="speech-line-0" class="speech-line"></div>
+    <div id="speech-line-1" class="speech-line"></div>
+  </div>
+  <div id="speech-markers">
+    <div id="speech-marker-0" class="speech-marker" hidden></div>
+    <div id="speech-marker-1" class="speech-marker" hidden></div>
+  </div>
 
   <div id="fps-counter" class="fps-counter" hidden></div>
 
@@ -98,6 +106,10 @@
       <div class="title-help title-tagline">Keep the fire going until dawn. The guys get cold, they go to bed. <span class="nowrap">Fire goes out, the bear comes.</span></div>
     </div>
     <div id="title-board" class="title-board"></div>
+    <div id="ios-tip" class="ios-tip" hidden>
+      <span class="ios-tip-text">For full screen: tap <b>aA</b> in the address bar, then <b>Hide Toolbar</b>. Or <b>Share</b>, then <b>Add to Home Screen</b> to play it like an app.</span>
+      <button id="ios-tip-btn" class="ios-tip-btn" type="button">Got it</button>
+    </div>
   </div>
 
   <div id="select" class="lobby" hidden>
@@ -144,6 +156,6 @@
     </div>
   </div>
 
-  <script type="module" src="src/game.js?v=89"></script>
+  <script type="module" src="src/game.js?v=119"></script>
 </body>
 </html>
