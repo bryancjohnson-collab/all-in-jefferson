@@ -2,11 +2,19 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <title>All In Jefferson</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Luckiest+Guy&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=74">
+  <link rel="stylesheet" href="styles.css?v=89">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="assets/icon-180.png">
+  <link rel="apple-touch-icon" href="assets/icon-180.png">
+  <meta name="theme-color" content="#0b1020">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="All In Jefferson">
   <script type="importmap">
     { "imports": {
       "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
@@ -19,6 +27,7 @@
 
   <div id="hud" hidden>
     <div class="hud-top">
+      <button id="pause-btn" class="panel pause-btn" type="button" aria-label="Pause">II</button>
       <div class="panel meter-panel">
         <div id="fire-label" class="label">FIRE</div>
         <div class="meter"><div id="fire-fill" class="fill"></div><div class="hot-line"></div></div>
@@ -31,7 +40,7 @@
     </div>
     <div class="hud-bottom">
       <div class="panel stat-panel"><span class="label">WOOD</span> <span id="wood-count">0</span></div>
-      <div class="panel stat-panel"><span class="label">GAS</span> <span id="gas-count">0</span> LEFT</div>
+      <div class="panel stat-panel"><span class="label">GAS</span> <span class="stat-value"><span id="gas-count">0</span> LEFT</span></div>
       <div id="bottle-chip" class="panel stat-panel bottle-chip" hidden><span class="label">BOTTLE</span> Space at the fire</div>
       <div id="music-chip" class="panel stat-panel music-chip">MUSIC ON  (M)</div>
       <div id="message" class="panel message-panel"></div>
@@ -40,9 +49,44 @@
     <div id="wind" class="panel wind-panel" hidden></div>
     <div id="banner" class="banner" hidden></div>
     <div id="errbox" class="errbox" hidden></div>
+
+    <div id="stick-zone" class="stick-zone">
+      <div id="stick" class="stick" hidden><div class="stick-knob"></div></div>
+    </div>
+    <div id="touch-stats" class="touch-stats">
+      <div class="t-chip"><i>WOOD</i><span id="t-wood">0</span></div>
+      <div class="t-chip"><i>GAS</i><span id="t-gas">0</span></div>
+    </div>
+    <button id="action-btn" class="action-btn" type="button"></button>
   </div>
 
   <div id="bubbles"></div>
+
+  <div id="fps-counter" class="fps-counter" hidden></div>
+
+  <div id="portrait-overlay" class="portrait-overlay" hidden>
+    <div class="rotate-icon">&#8635;</div>
+    <div class="portrait-text">Turn your phone sideways to tend the fire</div>
+  </div>
+
+  <div id="pause-overlay" class="pause-overlay" hidden>
+    <div class="pause-menu">
+      <h2>PAUSED</h2>
+      <div id="pause-sub" class="pause-sub"></div>
+      <button id="resume-btn" class="pmbtn pri" type="button">RESUME</button>
+      <button id="restart-night-btn" class="pmbtn" type="button">RESTART THE NIGHT</button>
+      <button id="quit-btn" class="pmbtn" type="button">QUIT TO TITLE</button>
+      <div class="pmrow">
+        <button id="pause-music-btn" class="pmbtn" type="button">MUSIC: ON</button>
+        <button id="howto-btn" class="pmbtn" type="button">HOW TO PLAY</button>
+      </div>
+      <button id="controls-side-btn" class="pmbtn controls-side" type="button">Controls: stick on the left</button>
+      <div id="howto-panel" class="howto-panel" hidden>
+        <p>Arrows walk (drag the stick on a phone). Space does the thing you are standing next to (tap the big button). The game points at anything you have not found yet.</p>
+        <p>Grab wood or gas, carry it to the fire, add it. Grab the poker stick by the wood pile to poke the fire back up. Keep it above the line as long as you can.</p>
+      </div>
+    </div>
+  </div>
 
   <div id="start" class="title">
     <div class="title-top">
@@ -92,10 +136,14 @@
     <div class="card">
       <h1 id="end-title">SUNDAY</h1>
       <div id="end-body"></div>
-      <button id="restart-btn">Next camper</button>
+      <div class="end-actions">
+        <button id="restart-btn">Next camper</button>
+        <button id="save-card-btn">SAVE CARD</button>
+        <button id="share-card-btn" hidden>SHARE</button>
+      </div>
     </div>
   </div>
 
-  <script type="module" src="src/game.js?v=74"></script>
+  <script type="module" src="src/game.js?v=89"></script>
 </body>
 </html>

@@ -284,7 +284,11 @@ export function buildCampChair() {
   g.add(stabilizer);
 
   const fabric = lambert("#1f5a3a");
-  const seat = new THREE.Mesh(new THREE.BoxGeometry(0.74, 0.06, 0.62), fabric);
+  // Depth trimmed 0.62 -> 0.52 (Bryan, 09/26: seated legs clipped the front X-frame
+  // and the seat edge): a shorter seat brings its front edge in under where a
+  // seated camper's knee actually lands (see SEATED_BACK_OFFSET/SHIN_LEAN in
+  // world.js), instead of the knee hovering deep over the cushion.
+  const seat = new THREE.Mesh(new THREE.BoxGeometry(0.74, 0.06, 0.52), fabric);
   seat.position.y = 0.45; seat.castShadow = true;
   const back = new THREE.Mesh(new THREE.BoxGeometry(0.74, 0.75, 0.06), fabric);
   back.position.set(0, 0.85, -0.3); back.castShadow = true;

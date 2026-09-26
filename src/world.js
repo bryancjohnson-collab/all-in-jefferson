@@ -4,10 +4,10 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
-import { LAYOUT } from "./config.js?v=74";
-import { spawnModel, lerpColor, mulberry32, buildCabin, buildCooler, buildGasCan, buildCampChair, buildPokerStick } from "./props.js?v=74";
-import { buildTravelTrailer } from "./trailer.js?v=74";
-import { buildFire } from "./fire.js?v=74";
+import { LAYOUT } from "./config.js?v=89";
+import { spawnModel, lerpColor, mulberry32, buildCabin, buildCooler, buildGasCan, buildCampChair, buildPokerStick } from "./props.js?v=89";
+import { buildTravelTrailer } from "./trailer.js?v=89";
+import { buildFire } from "./fire.js?v=89";
 
 export function buildWorld(canvas) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -29,9 +29,14 @@ export function buildWorld(canvas) {
   camera.position.set(0, 5.5, 15);
   camera.lookAt(0, 1.2, 0);
 
-  const ambient = new THREE.HemisphereLight("#3a4a7a", "#0a1408", 0.48);
+  // 0.48 -> 0.56 (09/26, Bryan: "still kind of dark outside the fire ring"): a
+  // step, not a jump. Both are ambient/uniform so this also lifts the inside of
+  // the ring a hair, but the fire there is an order of magnitude brighter, so
+  // it is the outside (cabin, trailer, cooler, wood pile, tree line) that
+  // actually reads the difference. Paired with fireLight's decay drop below.
+  const ambient = new THREE.HemisphereLight("#3a4a7a", "#0a1408", 0.56);
   scene.add(ambient);
-  const moon = new THREE.DirectionalLight("#8aa0d8", 0.48);
+  const moon = new THREE.DirectionalLight("#8aa0d8", 0.56);
   moon.position.set(-8, 14, -6);
   scene.add(moon);
 
@@ -40,7 +45,11 @@ export function buildWorld(canvas) {
   keyLight.position.set(2.6, 3.2, 7.4);
   scene.add(keyLight);
 
-  const fireLight = new THREE.PointLight("#ff9a3c", 80, 30, 1.4);   // decay 1.4 reaches the cabin and trailer; game.js scales intensity by 0.85 to match
+  // decay 1.4 -> 1.2 (09/26, same "dark outside the ring" note): reaches the
+  // cabin, trailer and wood pile a bit further past where 1.4 tapered off.
+  // game.js rebalances its intensity scale (0.85 -> 0.81, same radius-1.3
+  // cross-over method as the 2 -> 1.4 change) so the ring itself reads the same.
+  const fireLight = new THREE.PointLight("#ff9a3c", 80, 30, 1.2);
   fireLight.position.set(0, 1.2, 0);
   fireLight.castShadow = true;
   fireLight.shadow.mapSize.set(512, 512);   // point-light shadows render six faces a frame; keep it cheap
@@ -409,9 +418,28 @@ const HEAD_R = 0.17;
 const HEAD_TOP = TORSO_TOP + NECK_H + HEAD_R * 2; // ~1.72, cap adds a bit more
 const SHOULDER_Y = TORSO_TOP - 0.06, SHOULDER_X = 0.32;
 const ARM_LEN = 0.50;
-export const SEATED_DROP = SEAT_Y - HIP_Y;  // hips take the seat's weight (~-0.33)
 
-const HIP_SIT_ANGLE = -Math.PI / 2, KNEE_SIT_ANGLE = Math.PI / 2;
+// Seated pose tuning (09/26: Bryan's chair-clip screenshot showed shins and
+// thighs passing through the front X-frame legs and the seat edge from the
+// title camera's side/back angles). Two levers, on top of buildCampChair's
+// shorter seat depth (props.js):
+// - SEATED_BACK_OFFSET nudges the whole seated rig (legs, torso, head, arms
+//   together, never just the legs) toward the chair back so the rear sits on
+//   the seat and the back meets the backrest, instead of floating mid-cushion.
+// - SHIN_LEAN bends the knee a little short of a right angle so the shin (and
+//   the foot) swing forward past the knee instead of hanging straight down
+//   from it. A straight-down shin lands almost exactly on top of the front
+//   leg's ground contact (the X-frame crosses right under the seat's front
+//   edge); leaning it forward clears the frame and reads as a relaxed
+//   camp-chair sprawl rather than a formal chair-sit.
+const SEATED_BACK_OFFSET = 0.05;
+const SHIN_LEAN = 0.35;   // radians, ~20 degrees
+const HIP_SIT_ANGLE = -Math.PI / 2, KNEE_SIT_ANGLE = Math.PI / 2 - SHIN_LEAN;
+// SHIN_LEAN shortens the shin's effective vertical drop (cos(lean) < 1), so
+// the seated drop is deepened by exactly that much to keep the feet on the
+// ground instead of floating. Without the lean this reduces to SEAT_Y - HIP_Y,
+// the original relation (shin length was chosen to equal SEAT_Y exactly).
+export const SEATED_DROP = SEAT_Y - HIP_Y - SHIN_LEN * (1 - Math.cos(SHIN_LEAN));
 
 // Shared geometries: every camper reuses the same shapes, only materials (and,
 // for the torso/arm, which of these shapes) differ. RoundedBoxGeometry with a
@@ -502,7 +530,12 @@ const eyesGeo = (() => {
 // is parented under `head` (see makeCamperMesh) so it inherits head rotation
 // during emotes instead of floating free of a tilted head.
 const CROWN_R = HEAD_R + 0.035;
-const CAP_Y = NECK_H + HEAD_R * 2 - 0.06;
+// Lowered 0.02 (09/26): the 09/25 raise (done to clear the eyes) left a strip of
+// bare forehead between the brim and the eyes wide enough to read as the cap
+// floating off the skull, especially from the side where the crown's rim is
+// noticeably wider than the head at that height. Eyes (top edge ~0.225) still
+// clear the brim with margin.
+const CAP_Y = NECK_H + HEAD_R * 2 - 0.08;
 const capGeo = (() => {
   const crown = new THREE.SphereGeometry(CROWN_R, 10, 7, 0, Math.PI * 2, 0, Math.PI / 2);
   crown.scale(1, 0.8, 1);   // flattened half-sphere, not a full dome
@@ -528,7 +561,10 @@ const beanieBandGeo = (() => {
   return band;
 })();
 const pomGeo = new THREE.SphereGeometry(0.06, 8, 6);
-const BEANIE_Y = NECK_H + HEAD_R * 1.5 + 0.09;
+// Lowered 0.025 (09/26, Bryan: hats a little disconnected from heads): settles
+// the cuff closer to the skull; still clears the eyes (top edge ~0.225) by a
+// comfortable margin.
+const BEANIE_Y = NECK_H + HEAD_R * 1.5 + 0.065;
 
 // Bucket hat: a low, near-flat crown and a brim that slopes down and out all
 // the way around (an open cone-frustum lateral surface, no flat caps, so it
@@ -545,7 +581,9 @@ const bucketBrimGeo = (() => {
   g.translate(0, -0.025, 0);
   return g;
 })();
-const BUCKET_Y = NECK_H + HEAD_R * 1.55 + 0.07;
+// Lowered 0.023 (09/26): same disconnected-from-the-skull note as the cap and
+// beanie; the brim still clears the eyes (top edge ~0.225) with margin.
+const BUCKET_Y = NECK_H + HEAD_R * 1.55 + 0.047;
 
 // Cap logo patch: a tiny flat panel on a baseball cap's front, cheap enough to
 // put on every capped camper (art pass step 4 detail pass).
@@ -1019,14 +1057,22 @@ export function makeCamperMesh(camper) {
   };
   const armL = makeArm(-1), armR = makeArm(1);
 
-  g.add(legs, body, head, armL, armR);
-  g.userData.parts = { body, legs, head, cap, armL, armR, legL: legParts.legL, legR: legParts.legR, kneeL: legParts.kneeL, kneeR: legParts.kneeR };
+  // `rig` holds everything (legs, torso, head, arms) so setSeated can nudge the
+  // whole camper toward the chair back in one local-space move (rig.position.z
+  // is in the mesh's own facing direction, so it stays correct however the
+  // mesh itself is rotated to face the fire). `g` keeps carrying the world
+  // position/rotation exactly as before.
+  const rig = new THREE.Group();
+  rig.add(legs, body, head, armL, armR);
+  g.add(rig);
+  g.userData.parts = { body, legs, head, cap, armL, armR, rig, legL: legParts.legL, legR: legParts.legR, kneeL: legParts.kneeL, kneeR: legParts.kneeR };
   return g;
 }
 
 // Bends the hip and knee pivots for a seated camper (thighs forward, shins
-// down to the ground) and drops the whole mesh so the hips take the chair
-// seat's weight. Standing/walking/leaving states call setSeated(mesh, false)
+// down and forward of the knee) and drops the whole mesh so the hips take the
+// chair seat's weight, then nudges the rig back so the rear settles against
+// the seat back. Standing/walking/leaving states call setSeated(mesh, false)
 // to reset the legs.
 export function setSeated(mesh, on) {
   const p = mesh.userData.parts;
@@ -1036,6 +1082,7 @@ export function setSeated(mesh, on) {
   p.kneeL.rotation.x = on ? KNEE_SIT_ANGLE : 0;
   p.kneeR.rotation.x = on ? KNEE_SIT_ANGLE : 0;
   mesh.position.y = on ? SEATED_DROP : 0;
+  if (p.rig) p.rig.position.z = on ? -SEATED_BACK_OFFSET : 0;
 }
 
 // Walk cycle: swings the hip pivots (and, unless armsBusy, the arm pivots)

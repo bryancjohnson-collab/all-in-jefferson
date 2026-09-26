@@ -95,6 +95,23 @@ export const EVENTS = {
   skyMinGap: 50, skyMaxGap: 110,
   plateMinGap: 55, plateMaxGap: 95, plateFlare: 12, plateDip: 10,
   coyoteBelow: 0.25, coyoteMinGap: 6, coyoteMaxGap: 11,
+  // Camper-tossed beer can in the fire (once per night, Bryan's "put a full beer can
+  // in the fire" ask). Separate from the player's own beer bomb above, which is
+  // unchanged. Window is clock minutes, converted with the same gameMinutes() mapping.
+  canBeerWindowStartMin: 22 * 60 + 30,  // 10:30 PM
+  canBeerWindowEndMin: 24 * 60 + 180,   // 3:00 AM
+  canBeerTossSeconds: 0.8,              // arm wind-up + arc, matches the wrapper toss
+  canBeerHeatSeconds: 3.5,              // sits in the fire, visibly heating, before it goes
+  canBeerShake: 0.9,                    // bigger than the player's own beer bomb (beerShake above)
+  canBeerFlare: 8,                      // small, optional flare; kept light per Bryan's ask
+  // "No Glass in the fire!" (once per night, not overlapping the can event above).
+  glassWindowStartMin: 22 * 60 + 30,    // 10:30 PM
+  glassWindowEndMin: 24 * 60 + 180,     // 3:00 AM
+  glassMinGapFromCan: 45,               // keeps it off the beer-can event's back
+  glassWindSeconds: 0.9,                // wind-up before Tom S shouts
+  glassHoldSeconds: 1.0,                // held up while Tom S yells
+  glassLowerSeconds: 0.6,               // arm comes back down, bottle set by the chair
+  glassSitSeconds: 1.2,                 // bottle sits by the chair, then disappears
 };
 
 export const BEAR = {
@@ -125,6 +142,8 @@ export const PLAYER = {
   speed: 4.2,
   carrySpeed: 3.0,
   reach: 1.6,
+  // Touch only (a thumb stick is less precise than keys); no other gameplay numbers change. Phone controls, docs/PHONE.md.
+  reachTouch: 2.1,
   minRadius: 1.3,
   maxRadius: 7.2,
 };

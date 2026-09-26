@@ -7,7 +7,8 @@ html, body { margin: 0; height: 100%; background: #0b1020; color: #f3e9d2; font-
 .hud-top, .hud-bottom { position: absolute; left: 0; right: 0; display: flex; gap: 12px; padding: 14px; align-items: flex-start; }
 .hud-top { top: 0; align-items: stretch; }
 .hud-top > .panel { height: 66px; display: flex; flex-direction: column; justify-content: center; box-sizing: border-box; }
-.hud-bottom { bottom: 0; align-items: flex-end; }
+.hud-bottom { bottom: 0; align-items: flex-end; overflow-x: clip; }
+.hud-bottom > .panel { height: 56px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; }
 .panel { background: rgba(20, 28, 48, 0.82); border: 2px solid #f3e9d2; border-radius: 10px; padding: 8px 12px; font-weight: 700; letter-spacing: 0.04em; }
 .label { font-size: 12px; opacity: 0.8; }
 .meter-panel { width: 360px; }
@@ -25,7 +26,17 @@ html, body { margin: 0; height: 100%; background: #0b1020; color: #f3e9d2; font-
 .sub { font-size: 11px; opacity: 0.8; }
 .stat-panel { font-size: 18px; }
 .stat-panel .label { display: block; }
-.message-panel { flex: 1; font-weight: 500; font-size: 15px; min-height: 40px; }
+.message-panel { flex: 1; min-width: 0; font-weight: 500; font-size: 15px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+
+/* Narrow phone width: the bottom-row panels are all fixed-content, so at 390px the
+   ticker is the one that pays for it. Tighten spacing and the stat numbers a notch
+   to give it room to actually show something instead of clipping to nothing. */
+@media (max-width: 480px) {
+  .hud-bottom { gap: 6px; padding: 10px; }
+  .hud-bottom > .panel { padding: 6px 8px; }
+  .hud-bottom .stat-panel:not(.music-chip) { font-size: 15px; }
+  .message-panel { font-size: 13px; }
+}
 .wind-panel { position: absolute; top: 90px; left: 50%; transform: translateX(-50%); background: rgba(90, 120, 200, 0.85); }
 
 #bubbles { position: fixed; inset: 0; pointer-events: none; }
@@ -36,13 +47,35 @@ html, body { margin: 0; height: 100%; background: #0b1020; color: #f3e9d2; font-
 
 .overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(5, 8, 18, 0.78); z-index: 10; }
 .overlay[hidden] { display: none; }
-.card { background: #16203a; border: 3px solid #f3e9d2; border-radius: 16px; padding: 28px 32px; max-width: 560px; text-align: center; }
+.card { background: #16203a; border: 3px solid #f3e9d2; border-radius: 16px; padding: 28px 32px; max-width: 560px; max-height: 94vh; overflow-y: auto; text-align: center; }
 .card h1 { margin: 0 0 12px; font-size: 34px; letter-spacing: 0.05em; }
 .card p { line-height: 1.45; margin: 10px 0; }
 .card .controls { font-size: 13px; opacity: 0.85; }
 .card button { margin-top: 14px; font-size: 18px; font-weight: 700; padding: 10px 22px; border-radius: 10px; border: 2px solid #f3e9d2; background: #ff8c1a; color: #1a1a1a; cursor: pointer; }
 .card ul { text-align: left; margin: 8px auto; padding-left: 20px; }
 .verdict { font-size: 20px; margin-top: 14px; }
+
+/* ---------- End-card actions (SAVE CARD / SHARE, next to Next camper) ---------- */
+.end-actions { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 10px; margin-top: 14px; }
+.end-actions button { margin-top: 0; }
+.end-actions button:disabled { opacity: 0.6; cursor: default; }
+#save-card-btn, #share-card-btn { background: #16203a; color: #f3e9d2; }
+#save-card-btn:hover, #share-card-btn:hover { background: #1e2c4d; }
+#share-card-btn[hidden] { display: none; }
+
+/* Landscape phone (844x390 and similar): tighten the card so the title, lists and
+   the new button row all fit without the page itself needing to scroll. */
+@media (max-height: 420px) {
+  .card { padding: 14px 18px; max-height: 96vh; }
+  .card h1 { font-size: 22px; margin-bottom: 6px; }
+  .card ul { font-size: 13px; margin: 4px auto; }
+  .card p { margin: 6px 0; font-size: 13px; }
+  .verdict { font-size: 15px; margin-top: 6px; }
+  .end-actions { margin-top: 8px; gap: 8px; }
+  .end-actions button { font-size: 14px; padding: 7px 14px; margin-top: 0; }
+  .board { font-size: 11px; }
+  .board td, .board th { padding: 1px 6px; }
+}
 
 /* ---------- Title screen ---------- */
 .title { position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column; justify-content: space-between; align-items: center; background: linear-gradient(180deg, rgba(5,8,18,0.5) 0%, rgba(5,8,18,0) 30%, rgba(5,8,18,0) 70%, rgba(5,8,18,0.7) 100%); }
@@ -128,3 +161,164 @@ html, body { margin: 0; height: 100%; background: #0b1020; color: #f3e9d2; font-
 
 .errbox { position: absolute; left: 50%; top: 120px; transform: translateX(-50%); background: rgba(120,30,30,0.92); border: 2px solid #ffd0d0; border-radius: 10px; padding: 8px 14px; font-size: 13px; max-width: 70vw; }
 .errbox[hidden] { display: none; }
+
+/* =========================================================================
+   Phone play and the pause menu (docs/PHONE.md). Everything below is scoped
+   to body.touch or to elements (pause/portrait overlays, fps counter) that
+   exist on every device but stay hidden until JS needs them, so none of the
+   rules above this point are touched and desktop keeps its exact look.
+   ========================================================================= */
+
+html, body { touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+body.touch #scene { touch-action: none; }
+
+/* ---------- Top strip: pause button, slim fire bar, clock chip ---------- */
+.pause-btn { display: none; }
+body.touch .pause-btn {
+  display: grid; place-items: center;
+  width: 38px; height: 38px; padding: 0; flex: 0 0 auto;
+  font: 800 15px "Trebuchet MS", sans-serif; letter-spacing: 0.05em;
+  color: #f3e9d2; cursor: pointer; pointer-events: auto;
+  margin-left: env(safe-area-inset-left);
+}
+body.touch .hud-top { top: env(safe-area-inset-top); align-items: center; }
+body.touch .hud-top { padding-right: max(14px, env(safe-area-inset-right)); }
+body.touch .title-panel { display: none; }
+body.touch .meter-panel { width: auto; flex: 1; height: 38px; padding: 4px 10px; }
+body.touch .meter-panel .label { font-size: 9px; letter-spacing: 1.5px; margin: 0 0 2px 1px; }
+body.touch .meter { height: 9px; border-radius: 5px; margin-top: 0; }
+body.touch .clock-panel { height: 38px; padding: 3px 10px; min-width: 0; margin-right: env(safe-area-inset-right); }
+body.touch .clock { font-size: 16px; }
+body.touch .sub { font-size: 8px; }
+
+/* ---------- Ticker: floating line, no box ---------- */
+body.touch .hud-bottom .panel:has(#wood-count),
+body.touch .hud-bottom .panel:has(#gas-count),
+body.touch .hud-bottom .panel:has(#player-name),
+body.touch #music-chip {
+  display: none;
+}
+body.touch #message {
+  position: fixed;
+  left: 0; right: 0; top: calc(46px + env(safe-area-inset-top));
+  width: auto; max-width: none; margin: 0; padding: 0 16px;
+  background: none; border: none; box-shadow: none;
+  text-align: center; font-size: 15px; font-weight: 700;
+  text-shadow: 0 1px 3px #000, 0 0 8px #000;
+  white-space: normal; overflow: visible; text-overflow: clip;
+  z-index: 2;
+}
+
+/* ---------- Bottom controls: floating stick, action button, WOOD/GAS chips ---------- */
+.stick-zone, .touch-stats, .action-btn { display: none; }
+body.touch .stick-zone {
+  display: block; position: absolute;
+  left: 0; top: 70px; bottom: 0; width: 55%;
+  pointer-events: auto; touch-action: none; z-index: 1;
+}
+body.touch.swap-controls .stick-zone { left: auto; right: 0; }
+.stick {
+  position: absolute; width: 118px; height: 118px; margin: -59px 0 0 -59px;
+  border-radius: 50%; border: 2px solid rgba(243,233,210,0.5);
+  background: rgba(12,16,30,0.32); pointer-events: none;
+}
+.stick-knob {
+  position: absolute; left: 50%; top: 50%; width: 52px; height: 52px;
+  margin: -26px 0 0 -26px; border-radius: 50%;
+  background: rgba(243,233,210,0.6); box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+}
+body.touch .action-btn {
+  display: grid; place-items: center;
+  position: absolute; right: max(26px, env(safe-area-inset-right));
+  bottom: max(24px, env(safe-area-inset-bottom));
+  width: 104px; height: 104px; border-radius: 50%;
+  background: rgba(255,140,26,0.88); border: 3px solid #ffd98a;
+  color: #2a1406; font: 800 15px "Trebuchet MS", sans-serif; letter-spacing: 0.02em;
+  line-height: 1.15; text-align: center; padding: 6px;
+  box-shadow: 0 3px 10px rgba(0,0,0,0.5);
+  pointer-events: auto; touch-action: none; z-index: 3; cursor: pointer;
+}
+body.touch .action-btn.idle { opacity: 0.4; }
+body.touch.swap-controls .action-btn { right: auto; left: max(26px, env(safe-area-inset-left)); }
+body.touch .touch-stats {
+  display: flex; flex-direction: column; gap: 6px;
+  position: absolute; right: max(138px, calc(env(safe-area-inset-right) + 112px));
+  bottom: max(30px, env(safe-area-inset-bottom));
+  z-index: 3; pointer-events: none;
+}
+body.touch.swap-controls .touch-stats { right: auto; left: max(138px, calc(env(safe-area-inset-left) + 112px)); }
+.t-chip {
+  background: rgba(12,16,30,0.62); border: 1.5px solid rgba(243,233,210,0.6);
+  border-radius: 9px; padding: 4px 10px; font: 700 13px "Trebuchet MS", sans-serif;
+  white-space: nowrap; color: #f3e9d2;
+}
+.t-chip i { font-style: normal; font-size: 9px; letter-spacing: 1.2px; opacity: 0.8; margin-right: 6px; }
+
+/* Larger bubbles and banners on phones */
+body.touch .bubble { font-size: 16px; padding: 8px 13px; max-width: 280px; }
+body.touch .banner { font-size: 44px; }
+
+/* ---------- Pause menu (all devices) ---------- */
+.pause-overlay { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; background: rgba(6,8,16,0.72); }
+.pause-overlay[hidden] { display: none; }
+.pause-menu {
+  width: min(340px, 86vw); max-height: 94vh; overflow-y: auto;
+  background: rgba(20,28,48,0.96); border: 3px solid #f3e9d2; border-radius: 16px;
+  padding: 18px 20px; text-align: center;
+}
+.pause-menu h2 { margin: 0 0 4px; font-family: "Luckiest Guy", "Trebuchet MS", sans-serif; font-size: 24px; letter-spacing: 0.1em; color: #ffd98a; text-shadow: 0 2px 0 #000; }
+.pause-sub { font-size: 12px; opacity: 0.85; margin-bottom: 14px; }
+.pmbtn {
+  display: block; width: 100%; margin: 7px 0; padding: 11px; border-radius: 10px;
+  font: 800 14px "Trebuchet MS", sans-serif; letter-spacing: 0.05em;
+  color: #f3e9d2; background: rgba(20,28,48,0.85); border: 2px solid rgba(243,233,210,0.7);
+  cursor: pointer;
+}
+.pmbtn:hover { border-color: #f3e9d2; }
+.pmbtn.pri { background: #ff8c1a; color: #1a1a1a; border-color: #ffd98a; }
+.pmrow { display: flex; gap: 8px; }
+.pmrow .pmbtn { flex: 1; font-size: 12px; padding: 9px 6px; }
+.controls-side { display: none; font-size: 12px; }
+body.touch .controls-side { display: block; }
+.howto-panel { margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(243,233,210,0.25); text-align: left; font-size: 13px; line-height: 1.45; color: rgba(243,233,210,0.9); }
+.howto-panel[hidden] { display: none; }
+.howto-panel p { margin: 0 0 8px; }
+
+/* ---------- Portrait: "turn your phone sideways" ---------- */
+.portrait-overlay {
+  position: fixed; inset: 0; z-index: 25; display: none;
+  flex-direction: column; align-items: center; justify-content: center; gap: 18px;
+  background: #0b1020; color: #f3e9d2; text-align: center; padding: 0 30px;
+}
+.portrait-overlay.show { display: flex; }
+.rotate-icon { font-size: 52px; color: #ffd98a; transform: rotate(90deg); display: inline-block; animation: pulse 1.6s ease-in-out infinite; }
+.portrait-text { font-size: 18px; font-weight: 700; max-width: 320px; line-height: 1.4; }
+
+/* ---------- FPS counter (?fps) ---------- */
+.fps-counter { position: fixed; top: 4px; left: 4px; z-index: 30; background: rgba(0,0,0,0.6); color: #9f9; font: 700 11px monospace; padding: 2px 6px; border-radius: 4px; pointer-events: none; }
+.fps-counter[hidden] { display: none; }
+
+/* ---------- Lobby and title compressed for a phone (body.touch, short viewport) ---------- */
+@media (max-height: 460px) {
+  /* Name/quote/emote flavor text collides with the picker panel at this height;
+     the picker's own highlighted chip already shows who is selected. */
+  body.touch .lobby-card { display: none; }
+  body.touch .lobby-rows { gap: 10px; margin-bottom: 2px; }
+  body.touch .lobby-row { padding: 6px 10px 8px; }
+  body.touch .row-label { font-size: 14px; margin-bottom: 4px; }
+  body.touch .pick { gap: 3px; max-width: 60vw; }
+  body.touch .pick-btn { font-size: 11px; padding: 3px 6px; }
+  body.touch .diff-btn { min-width: 84px; font-size: 11px; padding: 4px 6px; }
+  body.touch .diff-btn span { font-size: 9px; }
+  body.touch .lobby-name { font-size: 30px; }
+  body.touch .lobby-quote { font-size: 12px; max-width: 260px; }
+  body.touch .lobby-card { top: 46%; left: 8vw; max-width: 40vw; }
+  body.touch .lobby-bottom { bottom: 1vh; }
+  body.touch .lobby-bottom .title-start { font-size: 15px; padding: 8px 16px; }
+  body.touch .lobby-top { top: 2px; }
+  body.touch .lobby-logo { height: 46px; }
+  body.touch .lobby-heading { font-size: 16px; margin-top: 0; }
+  body.touch .lobby-arrow { width: 40px; height: 56px; font-size: 20px; }
+  body.touch .title-logo { max-height: 22vh; }
+  body.touch .title-start { font-size: 16px; padding: 8px 18px; }
+}
