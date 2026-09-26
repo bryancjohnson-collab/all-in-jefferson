@@ -1,11 +1,11 @@
 // All In Jefferson, prototype 1: the fire loop on a flat plane with box campers.
 import * as THREE from "three";
-import { NIGHT_SECONDS, NIGHT_START_MIN, NIGHT_END_MIN, MIDNIGHT_MIN, FIRE, WIND, CAMPER, BEAR, PLAYER, LAYOUT, POWERUPS, EVENTS, HOT_LEVELS, SMOKE, DIFFICULTY, HINTS, PHONE_FOLLOW } from "./config.js?v=119";
-import { initSound, coyoteYip, whoosh, growl, bang, startCrackle, setCrackle, footstep, logLand, pokeSound, buzz, playRiff, startLoop, stopMusic, playDawn, toggleMusic, musicEnabled, bearTheme, bearRideTheme, bearWomp, duckMusic } from "./sound.js?v=119";
-import { campers as roster, pickPlayer, commitPick, snacks, emotes, comments, coolerComments } from "./campers.js?v=119";
-import { buildWorld, makeCamperMesh, makeChairMesh, makeLogMesh, setSeated, stepWalkCycle, stepBearWalk, SEATED_DROP } from "./world.js?v=119";
-import { updateFireVisuals } from "./fire.js?v=119";
-import { initShareCardButtons } from "./sharecard.js?v=119";
+import { NIGHT_SECONDS, NIGHT_START_MIN, NIGHT_END_MIN, MIDNIGHT_MIN, FIRE, WIND, CAMPER, BEAR, PLAYER, LAYOUT, POWERUPS, EVENTS, HOT_LEVELS, SMOKE, DIFFICULTY, HINTS, PHONE_FOLLOW } from "./config.js?v=120";
+import { initSound, coyoteYip, whoosh, growl, bang, startCrackle, setCrackle, footstep, logLand, pokeSound, buzz, playRiff, startLoop, stopMusic, playDawn, toggleMusic, musicEnabled, bearTheme, bearRideTheme, bearWomp, duckMusic } from "./sound.js?v=120";
+import { campers as roster, pickPlayer, commitPick, snacks, emotes, comments, coolerComments } from "./campers.js?v=120";
+import { buildWorld, makeCamperMesh, makeChairMesh, makeLogMesh, setSeated, stepWalkCycle, stepBearWalk, SEATED_DROP } from "./world.js?v=120";
+import { updateFireVisuals } from "./fire.js?v=120";
+import { initShareCardButtons } from "./sharecard.js?v=120";
 
 const canvas = document.getElementById("scene");
 const world = buildWorld(canvas);
@@ -197,7 +197,8 @@ setControlsSwapped(controlsSwapped());
 // same top speed as the arrow keys either way), tracked by pointerId so it keeps
 // working at the same time as a separate finger on the action button.
 const touchStick = { id: null, x: 0, y: 0, originX: 0, originY: 0, downAt: 0 };
-const STICK_RADIUS = 55;
+const STICK_RADIUS = 72;   // raised from 55 (Bryan 09/26: "a little touchy"); full speed needs a longer drag
+const STICK_DEAD = 0.12;   // ignore tiny thumb wobble
 // Full screen (Bryan's phone play: "browser tabs reduce the screen space too
 // much"). No one-shot latch: the only guard is "are we already full screen",
 // so a tap can always ask again if the phone (or the player, or Android's own
@@ -245,8 +246,10 @@ function stickPointerMove(e) {
   const len = Math.hypot(dx, dy);
   if (len > STICK_RADIUS) { dx = (dx / len) * STICK_RADIUS; dy = (dy / len) * STICK_RADIUS; }
   stickKnobEl.style.transform = `translate(${dx}px, ${dy}px)`;
-  touchStick.x = dx / STICK_RADIUS;
-  touchStick.y = dy / STICK_RADIUS;
+  // Dead zone plus a gentle curve so small drags walk slowly and full speed is deliberate
+  const r = Math.min(1, len / STICK_RADIUS), k = r < STICK_DEAD ? 0 : Math.pow((r - STICK_DEAD) / (1 - STICK_DEAD), 1.4) / (r || 1);
+  touchStick.x = (dx / STICK_RADIUS) * k;
+  touchStick.y = (dy / STICK_RADIUS) * k;
   e.preventDefault();
 }
 function stickPointerUp(e) {
@@ -578,8 +581,8 @@ const GAME_LOOK = new THREE.Vector3(0, 0, 0);
 // was never doing anything. Verified in the browser that every chair, the fire
 // and every interactable clear the top strip at rest. Keyboard devices never
 // see this (isTouch stays false), so GAME_CAM/GAME_LOOK are untouched.
-const PHONE_CAM = new THREE.Vector3(0, 6.55, 5.7);
-const PHONE_LOOK = new THREE.Vector3(0, 0, -0.3);
+const PHONE_CAM = new THREE.Vector3(0, 8.0, 7.6);   // halfway back from (0, 6.55, 5.7): Bryan 09/26, "zoomed in a little too much"
+const PHONE_LOOK = new THREE.Vector3(0, 0, 0.25);
 const LOBBY_SPOT = new THREE.Vector3(1.9, 0, 4.3);   // forward of the empty chair so emotes do not clip it (Bryan, 09/25)
 const LOBBY_CAM = new THREE.Vector3(1.0, 2.3, 10.3);   // camera and look moved with the spot, same framing
 const LOBBY_LOOK = new THREE.Vector3(1.4, 1.0, 3.9);
