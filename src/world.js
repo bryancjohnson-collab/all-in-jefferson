@@ -4,10 +4,10 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
-import { LAYOUT, FIRE } from "./config.js?v=128";
-import { spawnModel, lerpColor, mulberry32, buildCabin, buildCooler, buildGasCan, buildCampChair, buildPokerStick } from "./props.js?v=128";
-import { buildTravelTrailer } from "./trailer.js?v=128";
-import { buildFire } from "./fire.js?v=128";
+import { LAYOUT, FIRE, REFINED_CAMPERS } from "./config.js?v=130";
+import { spawnModel, lerpColor, mulberry32, buildCabin, buildCooler, buildGasCan, buildCampChair, buildPokerStick } from "./props.js?v=130";
+import { buildTravelTrailer } from "./trailer.js?v=130";
+import { buildFire } from "./fire.js?v=130";
 
 export function buildWorld(canvas) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -842,25 +842,40 @@ const hoodieCuffMat = solidMaterial("#9a958c");
 // (none in campers.js anymore, but kept as a safety net) renders exactly as
 // the pre-art-pass rig did: flannel in `shirt`, jeans, a cap in `cap`, no
 // hair/beard/glasses.
-export function makeCamperMesh(camper) {
-  const g = new THREE.Group();
-  const look = camper.look || { top: "flannel", topColor: camper.shirt, pants: "jeans", cap: camper.cap };
-  const shorts = isShorts(look.pants);
-  const shortSleeve = look.top === "tee";
+//
+// REFINE PASS (09/27/2026, Bryan: verify on Johnny D before it goes wide).
+// makeCamperMesh() below is a dispatcher: campers in config.js's
+// REFINED_CAMPERS render through buildRefinedCamper (elbow joints, a face,
+// an outline), everyone else keeps buildClassicCamper exactly as it was.
+// Legs, torso trims, and the head/hat/hair core are shared helpers
+// (buildLegs/attachTorsoTrims/buildHeadCore) so both builders stay in sync
+// and a camper can move from classic to refined later without a rewrite.
+// Refined-only userData.parts fields: elbowL/elbowR (children of armL/armR,
+// so existing code that rotates armL/armR is unaffected) and `face`
+// ({ mouth, eyebrows } meshes driven by setExpression()).
 
+function buildLegs(look, girth = 1) {
   // Legs: hip pivot -> thigh -> knee pivot -> shin + boot (+ sock, if the pant
   // leg stops at the knee). Rest angle is 0 on both joints (a straight
-  // standing leg); setSeated() bends them for sitting.
+  // standing leg); setSeated() bends them for sitting, stepWalkCycle() bends
+  // both for walking. Identical for the classic and refined builders except
+  // for `girth` (refined-only, from look.build): a per-mesh X/Z-only scale on
+  // the thigh/shin/boot themselves (never on the rotating hip/knee pivots, and
+  // never touching Y), so a "big" build gets a visibly thicker leg at the same
+  // height with no shear at any knee/hip bend angle -- scaling a leaf mesh is
+  // safe under an ancestor's rotation; scaling the rotating pivot itself is not.
+  const shorts = isShorts(look.pants);
   const pantsMat = pantsMaterial(look.pants);
   const shoeMat = look.shoes === "sneakers" ? sneakerMat : bootMat;
+  const isSneaker = look.shoes === "sneakers";
   const legs = new THREE.Group();
   const legParts = {};
-  const isSneaker = look.shoes === "sneakers";
   [["legL", "kneeL", -1], ["legR", "kneeR", 1]].forEach(([hipKey, kneeKey, side]) => {
     const hip = new THREE.Group();
     hip.position.set(side * LEG_X, HIP_Y, 0);
     const thigh = new THREE.Mesh(thighGeo, pantsMat);
     thigh.position.y = -THIGH_LEN / 2;
+    thigh.scale.set(girth, 1, girth);
     thigh.castShadow = true;
     if (shorts) {
       // A hem cuff at the bottom of the thigh, where the shorts end.
@@ -872,9 +887,11 @@ export function makeCamperMesh(camper) {
     knee.position.y = -THIGH_LEN;
     const shin = new THREE.Mesh(shorts ? bareShinGeo : shinGeo, shorts ? skinMat : pantsMat);
     shin.position.y = -SHIN_LEN / 2;
+    shin.scale.set(girth, 1, girth);
     shin.castShadow = true;
     const boot = new THREE.Mesh(bootGeo, shoeMat);
     boot.position.y = -SHIN_LEN + 0.03;
+    boot.scale.set(girth, 1, girth);
     boot.castShadow = true;
     // Boots get a sole and a toe cap; sneakers get a bright white sole.
     boot.add(new THREE.Mesh(isSneaker ? sneakerSoleGeo : bootDetailGeo, isSneaker ? sneakerSoleMat : bootDetailMat));
@@ -888,17 +905,16 @@ export function makeCamperMesh(camper) {
     legs.add(hip);
     legParts[hipKey] = hip; legParts[kneeKey] = knee;
   });
+  return { legs, legParts, pantsMat };
+}
 
-  // Torso: tapered chest-over-hip geometry (regular or the bulkier puffer),
-  // solid or flannel material, then whatever trim the garment calls for, all
-  // added as children of `body` in its own local space (0,0,0 at chest/hip
-  // center, +TORSO_H/2 at the shoulder line, -TORSO_H/2 at the hem).
-  const torsoW = torsoWidthFor(look.top), torsoD = torsoDepthFor(look.top);
-  const body = new THREE.Mesh(torsoGeoFor(look.top), topMaterial(look, torsoW, TORSO_H));
-  body.position.y = HIP_Y + TORSO_H / 2;
-  body.castShadow = true;
+// Torso trims (collar, zip, hood, quilt bands, ribbing, graphic decal, hi-vis
+// hem, belt/pocket hints): whatever the garment in `look` calls for, added as
+// children of `body`. Shared by both builders; only the base torso geometry
+// (regular taper vs. the refined shoulder-slope taper) differs between them.
+function attachTorsoTrims(body, look, torsoW, torsoD, pantsMat) {
+  const shorts = isShorts(look.pants);
   const topLocalTop = TORSO_H / 2, topLocalBottom = -TORSO_H / 2;
-
   if (look.top === "fleece") {
     // Collar and a small chest pocket, one merged mesh, plus a separate zip
     // bar with its pull tab (a second color, so it stays its own mesh).
@@ -952,7 +968,11 @@ export function makeCamperMesh(camper) {
   } else if (look.pants === "jeans") {
     body.add(new THREE.Mesh(jeansPocketsGeo, solidMaterial("#242f4a")));
   }
+}
 
+// Head core: skull/eyes/beard/glasses/hat/hair, shared by both builders. The
+// refined builder adds eyebrows, a mouth and an outline on top of this.
+function buildHeadCore(look) {
   const head = new THREE.Mesh(headGeo, skinMat);
   head.position.y = TORSO_TOP;
   head.castShadow = true;
@@ -1011,50 +1031,74 @@ export function makeCamperMesh(camper) {
   // moves out from under it (Bryan, 09/26: Perry's cap during the cheese-puff
   // toss). `userData.parts.cap` still points at the same object either way.
   head.add(cap);
+  return { head, eyes, cap };
+}
 
-  // Arms pivot at the shoulder so emotes and the walk cycle can swing them.
-  // A tee's short sleeve is a shorter shirt-colored segment over a bare skin
-  // forearm; every other top is one full-length sleeve.
-  const makeArm = (side) => {
-    const pivot = new THREE.Group();
-    pivot.position.set(side * SHOULDER_X, SHOULDER_Y, 0);
-    if (shortSleeve) {
-      const sleeve = new THREE.Mesh(sleeveGeo, topMaterial(look, 0.16, SLEEVE_LEN));
-      sleeve.position.y = -SLEEVE_LEN / 2;
-      sleeve.castShadow = true;
-      const hem = new THREE.Mesh(teeSleeveHemGeo, solidMaterial(shade(look.topColor, 0.8)));
-      hem.position.y = -SLEEVE_LEN / 2 + 0.015;
-      sleeve.add(hem);
-      const forearm = new THREE.Mesh(forearmGeo, skinMat);
-      forearm.position.y = -(SLEEVE_LEN + FOREARM_LEN / 2);
-      forearm.castShadow = true;
-      pivot.add(sleeve, forearm);
-    } else {
-      const arm = new THREE.Mesh(armGeo, topMaterial(look, 0.15, ARM_LEN));
-      arm.position.y = -ARM_LEN / 2;
-      arm.castShadow = true;
-      if (look.top === "longsleeve") {
-        const cuff = new THREE.Mesh(longsleeveCuffGeo, solidMaterial(shade(look.topColor, 0.75)));
-        cuff.position.y = -ARM_LEN / 2 + 0.02;
-        arm.add(cuff);
-      } else if (look.top === "hoodie") {
-        const cuff = new THREE.Mesh(longsleeveCuffGeo, hoodieCuffMat);
-        cuff.position.y = -ARM_LEN / 2 + 0.02;
-        arm.add(cuff);
-      }
-      pivot.add(arm);
+// Arms pivot at the shoulder so emotes and the walk cycle can swing them.
+// A tee's short sleeve is a shorter shirt-colored segment over a bare skin
+// forearm; every other top is one full-length sleeve. Classic builder: one
+// rigid mesh (plus the tee's forearm) below the shoulder pivot, exactly as
+// before the refine pass.
+function makeArm(side, look) {
+  const shortSleeve = look.top === "tee";
+  const pivot = new THREE.Group();
+  pivot.position.set(side * SHOULDER_X, SHOULDER_Y, 0);
+  if (shortSleeve) {
+    const sleeve = new THREE.Mesh(sleeveGeo, topMaterial(look, 0.16, SLEEVE_LEN));
+    sleeve.position.y = -SLEEVE_LEN / 2;
+    sleeve.castShadow = true;
+    const hem = new THREE.Mesh(teeSleeveHemGeo, solidMaterial(shade(look.topColor, 0.8)));
+    hem.position.y = -SLEEVE_LEN / 2 + 0.015;
+    sleeve.add(hem);
+    const forearm = new THREE.Mesh(forearmGeo, skinMat);
+    forearm.position.y = -(SLEEVE_LEN + FOREARM_LEN / 2);
+    forearm.castShadow = true;
+    pivot.add(sleeve, forearm);
+  } else {
+    const arm = new THREE.Mesh(armGeo, topMaterial(look, 0.15, ARM_LEN));
+    arm.position.y = -ARM_LEN / 2;
+    arm.castShadow = true;
+    if (look.top === "longsleeve") {
+      const cuff = new THREE.Mesh(longsleeveCuffGeo, solidMaterial(shade(look.topColor, 0.75)));
+      cuff.position.y = -ARM_LEN / 2 + 0.02;
+      arm.add(cuff);
+    } else if (look.top === "hoodie") {
+      const cuff = new THREE.Mesh(longsleeveCuffGeo, hoodieCuffMat);
+      cuff.position.y = -ARM_LEN / 2 + 0.02;
+      arm.add(cuff);
     }
-    const hand = new THREE.Mesh(handGeo, skinMat);
-    hand.position.y = -ARM_LEN - 0.065;
-    pivot.add(hand);
-    if (look.watch && side === -1) {
-      const watch = new THREE.Mesh(watchGeo, watchMat);
-      watch.position.y = -ARM_LEN + 0.045;
-      pivot.add(watch);
-    }
-    return pivot;
-  };
-  const armL = makeArm(-1), armR = makeArm(1);
+    pivot.add(arm);
+  }
+  const hand = new THREE.Mesh(handGeo, skinMat);
+  hand.position.y = -ARM_LEN - 0.065;
+  pivot.add(hand);
+  if (look.watch && side === -1) {
+    const watch = new THREE.Mesh(watchGeo, watchMat);
+    watch.position.y = -ARM_LEN + 0.045;
+    pivot.add(watch);
+  }
+  return pivot;
+}
+
+function buildClassicCamper(camper) {
+  const g = new THREE.Group();
+  const look = camper.look || { top: "flannel", topColor: camper.shirt, pants: "jeans", cap: camper.cap };
+
+  const { legs, legParts, pantsMat } = buildLegs(look);
+
+  // Torso: tapered chest-over-hip geometry (regular or the bulkier puffer),
+  // solid or flannel material, then whatever trim the garment calls for, all
+  // added as children of `body` in its own local space (0,0,0 at chest/hip
+  // center, +TORSO_H/2 at the shoulder line, -TORSO_H/2 at the hem).
+  const torsoW = torsoWidthFor(look.top), torsoD = torsoDepthFor(look.top);
+  const body = new THREE.Mesh(torsoGeoFor(look.top), topMaterial(look, torsoW, TORSO_H));
+  body.position.y = HIP_Y + TORSO_H / 2;
+  body.castShadow = true;
+  attachTorsoTrims(body, look, torsoW, torsoD, pantsMat);
+
+  const { head, cap } = buildHeadCore(look);
+
+  const armL = makeArm(-1, look), armR = makeArm(1, look);
 
   // `rig` holds everything (legs, torso, head, arms) so setSeated can nudge the
   // whole camper toward the chair back in one local-space move (rig.position.z
@@ -1067,6 +1111,270 @@ export function makeCamperMesh(camper) {
   g.userData.parts = { body, legs, head, cap, armL, armR, rig, legL: legParts.legL, legR: legParts.legR, kneeL: legParts.kneeL, kneeR: legParts.kneeR };
   return g;
 }
+
+// ---------- Refined builder (art pass step 5, 09/27/2026): elbow joints, a
+// simple switchable face, and a cheap inverted-hull outline on the torso and
+// head so the silhouette pops at night. Same proportions/height as classic
+// (same leg/torso/head constants); see docs/HANDOFF.md and the comment above
+// makeCamperMesh for the rollout plan (REFINED_CAMPERS in config.js). ----------
+
+// Elbow split: the arm is built in two segments (upper arm under the shoulder
+// pivot, forearm under a new elbow pivot) so it can bend independently of the
+// shoulder. Split so a straight arm (elbow.rotation.x = 0) lands the hand at
+// the exact same spot as the classic one-piece arm -- every existing call
+// that rotates armL/armR (emotes, the poke thrust, stepWalkCycle) keeps
+// working unmodified; the elbow only adds a bend on top.
+const UPPER_FRAC = 0.52;
+const UPPER_LEN = ARM_LEN * UPPER_FRAC;
+const LOWER_LEN = ARM_LEN - UPPER_LEN;
+const upperArmGeoRefined = new RoundedBoxGeometry(0.15, UPPER_LEN, 0.15, ROUND_SEG, LIMB_R);
+const forearmGeoRefined = new RoundedBoxGeometry(0.135, LOWER_LEN, 0.135, ROUND_SEG, 0.022);
+// Mitten hand: same box the classic hand uses, rounded harder so it reads as
+// a soft mitten block instead of a bare cube.
+const mittenHandGeo = new RoundedBoxGeometry(0.175, 0.145, 0.175, ROUND_SEG, 0.05);
+// Idle elbow bend (standing/emoting): a relaxed arm is never bolt-straight.
+const ELBOW_IDLE = 0.18;
+// Seated elbow bend: forearms come up and rest toward the lap.
+const ELBOW_SEATED = 1.05;
+
+function makeArmRefined(side, look, girth = 1, shoulderXMul = 1) {
+  const shortSleeve = look.top === "tee";
+  const pivot = new THREE.Group();
+  pivot.position.set(side * SHOULDER_X * shoulderXMul, SHOULDER_Y, 0);
+  const elbow = new THREE.Group();
+  let lowerLen;
+  if (shortSleeve) {
+    // Elbow sits right at the tee sleeve's hem, same as the classic split
+    // between the short sleeve and its bare forearm.
+    const sleeve = new THREE.Mesh(sleeveGeo, topMaterial(look, 0.16, SLEEVE_LEN));
+    sleeve.position.y = -SLEEVE_LEN / 2;
+    sleeve.scale.set(girth, 1, girth);
+    sleeve.castShadow = true;
+    const hem = new THREE.Mesh(teeSleeveHemGeo, solidMaterial(shade(look.topColor, 0.8)));
+    hem.position.y = -SLEEVE_LEN / 2 + 0.015;
+    sleeve.add(hem);
+    pivot.add(sleeve);
+    elbow.position.y = -SLEEVE_LEN;
+    lowerLen = FOREARM_LEN;
+    const forearm = new THREE.Mesh(forearmGeo, skinMat);
+    forearm.position.y = -FOREARM_LEN / 2;
+    forearm.scale.set(girth, 1, girth);
+    forearm.castShadow = true;
+    elbow.add(forearm);
+  } else {
+    const upper = new THREE.Mesh(upperArmGeoRefined, topMaterial(look, 0.15, UPPER_LEN));
+    upper.position.y = -UPPER_LEN / 2;
+    upper.scale.set(girth, 1, girth);
+    upper.castShadow = true;
+    pivot.add(upper);
+    elbow.position.y = -UPPER_LEN;
+    lowerLen = LOWER_LEN;
+    const forearm = new THREE.Mesh(forearmGeoRefined, topMaterial(look, 0.13, LOWER_LEN));
+    forearm.position.y = -LOWER_LEN / 2;
+    forearm.scale.set(girth, 1, girth);
+    forearm.castShadow = true;
+    if (look.top === "longsleeve") {
+      const cuff = new THREE.Mesh(longsleeveCuffGeo, solidMaterial(shade(look.topColor, 0.75)));
+      cuff.position.y = -LOWER_LEN / 2 + 0.02;
+      forearm.add(cuff);
+    } else if (look.top === "hoodie") {
+      const cuff = new THREE.Mesh(longsleeveCuffGeo, hoodieCuffMat);
+      cuff.position.y = -LOWER_LEN / 2 + 0.02;
+      forearm.add(cuff);
+    }
+    elbow.add(forearm);
+  }
+  elbow.rotation.x = ELBOW_IDLE;
+  const hand = new THREE.Mesh(mittenHandGeo, skinMat);
+  hand.position.y = -lowerLen - 0.065;
+  hand.scale.set(girth, 1, girth);
+  elbow.add(hand);
+  if (look.watch && side === -1) {
+    const watch = new THREE.Mesh(watchGeo, watchMat);
+    watch.position.y = -lowerLen + 0.045;
+    elbow.add(watch);
+  }
+  pivot.add(elbow);
+  return { pivot, elbow };
+}
+
+// Torso base geometry (round 2, 09/27/2026: the round-1 shoulder-slope cap
+// made every torso read wider and banded, like a puffer, even on a plain
+// quarter-zip -- Bryan). Back to the classic two-box chest-over-hip taper
+// (same TORSO_W/TORSO_D as the classic builder: chestScale/hipScale of 1.0
+// pass through at classic width/depth), just a touch more taper at the waist
+// and a bigger bevel radius so it reads a little less boxy without adding a
+// second visible tier. Per-camper body build (look.build, "big"/"slim") is
+// applied afterward as a uniform X/Z scale on the whole `body` mesh in
+// buildRefinedCamper, not baked in here.
+function buildTorsoGeoRefined(chestScale, hipScale) {
+  const chest = new RoundedBoxGeometry(TORSO_W * chestScale, CHEST_H, TORSO_D * chestScale, ROUND_SEG, 0.045);
+  chest.translate(0, TORSO_H / 2 - CHEST_H / 2, 0);
+  const hip = new RoundedBoxGeometry(TORSO_W * hipScale, HIP_H, TORSO_D * hipScale, ROUND_SEG, 0.035);
+  hip.translate(0, -TORSO_H / 2 + HIP_H / 2, 0);
+  return mergeGeometries([chest, hip]);
+}
+const torsoGeoRegularRefined = buildTorsoGeoRefined(1.0, 0.80);
+const torsoGeoPufferRefined = buildTorsoGeoRefined(1.18, 1.0);
+function torsoGeoForRefined(top) { return top === "puffer" ? torsoGeoPufferRefined : torsoGeoRegularRefined; }
+
+// ---------- Face: eyebrows + a small mouth, each a single mesh whose
+// geometry (and, for the mouth, rotation) setExpression() swaps at runtime --
+// cheap (one draw call each, no matter how many expressions exist) and no
+// morph targets needed at this poly count. ----------
+const BROW_Y = NECK_H + HEAD_R + 0.05, BROW_Z = HEAD_R - 0.03;
+const browBoxGeo = () => new THREE.BoxGeometry(0.06, 0.018, 0.02);
+const eyebrowNeutralGeo = (() => {
+  const l = browBoxGeo(); l.translate(-0.07, BROW_Y, BROW_Z);
+  const r = browBoxGeo(); r.translate(0.07, BROW_Y, BROW_Z);
+  return mergeGeometries([l, r]);
+})();
+// Furrowed: inner ends pulled down and together (worried/cold).
+const eyebrowColdGeo = (() => {
+  const l = browBoxGeo(); l.rotateZ(0.35); l.translate(-0.062, BROW_Y - 0.014, BROW_Z);
+  const r = browBoxGeo(); r.rotateZ(-0.35); r.translate(0.062, BROW_Y - 0.014, BROW_Z);
+  return mergeGeometries([l, r]);
+})();
+// Raised high and arched outward (shock).
+const eyebrowScaredGeo = (() => {
+  const l = browBoxGeo(); l.rotateZ(-0.22); l.translate(-0.072, BROW_Y + 0.028, BROW_Z);
+  const r = browBoxGeo(); r.rotateZ(0.22); r.translate(0.072, BROW_Y + 0.028, BROW_Z);
+  return mergeGeometries([l, r]);
+})();
+const eyebrowMat = solidMaterial("#241a12");
+
+// Mouth position lives on the MESH (set once in buildRefinedCamper), not
+// baked into these geometries: setExpression() rotates the mesh itself
+// (rotation.z = PI to flip the smile into the "cold" frown), and a rotation
+// has to turn around the mouth's own local origin, not the head's, or it
+// flies off to wherever (0,0,0) is in head-space when flipped.
+const MOUTH_Y = NECK_H + HEAD_R - 0.085, MOUTH_Z = HEAD_R - 0.008;
+const mouthNeutralGeo = new THREE.BoxGeometry(0.064, 0.013, 0.014);
+// "U"-shaped smile: the bottom arc of a small torus ring, so the corners turn
+// up. Reused rotated 180deg (see setExpression) for the "cold" frown -- same
+// geometry, flipped, so a frown costs nothing extra.
+const mouthSmileGeo = (() => {
+  const arc = Math.PI * 0.6;
+  const g = new THREE.TorusGeometry(0.04, 0.012, 5, 8, arc);
+  g.rotateZ(Math.PI * 1.5 - arc / 2); // centers the arc at the bottom of the ring, around its own origin
+  return g;
+})();
+// Small open "O" for a scared/shocked mouth.
+const mouthOpenGeo = new THREE.CylinderGeometry(0.022, 0.026, 0.03, 8);
+const mouthMat = solidMaterial("#3a1c14");
+
+// Outline: a scaled, back-face-only dark shell as a child of the torso and
+// the head (the two parts that define the silhouette at a distance), reusing
+// each part's own geometry so it always matches exactly and inherits any
+// build scale applied to its host mesh automatically. Two extra draw calls
+// per refined camper -- everything else in the refine pass is either
+// zero-cost (animation, geometry swaps on parts that already existed) or
+// folded into an existing merged mesh (the torso taper).
+//
+// Round 2 (09/27/2026, Bryan: "it barely shows at night"): 1.05-1.06 was
+// only a couple of percent of inflation, a fraction of a pixel at the
+// gameplay camera's distance or on a phone. OUTLINE_SCALE is a flat 14%,
+// about 5x thicker, which is what actually reads at that size; still just
+// the same two draw calls; see the round-2 sheet for a before/after look at
+// the gameplay camera and the phone frame.
+const OUTLINE_SCALE = 1.14;
+const outlineMat = new THREE.MeshBasicMaterial({ color: "#080706", side: THREE.BackSide, toneMapped: false });
+function addOutline(hostMesh, scale = OUTLINE_SCALE) {
+  const outline = new THREE.Mesh(hostMesh.geometry, outlineMat);
+  outline.scale.setScalar(scale);
+  outline.castShadow = false;
+  hostMesh.add(outline);
+  return outline;
+}
+
+// Body build (round 2, 09/27/2026, Bryan: "Bryan J, Tom S, Chris Occ and
+// Spitty are bigger. Not fat. The other guys are slimmer" -- look.build,
+// "big"/"slim", set per camper in campers.js and recorded in docs/CAMPERS.md's
+// Looks table). Broader shoulders/chest and thicker limbs for "big", same
+// height either way: every factor below is X/Z only (Y always 1), and every
+// one is applied either to `body` itself (safe: a mesh's own rotation always
+// composes with its own scale without shear, see game.js's cold-hunch lean)
+// or to a static leaf mesh deep inside the rig (thigh/shin/boot/arm/forearm/
+// hand -- see buildLegs and makeArmRefined), never to a rotating pivot.
+const BUILD = {
+  slim: { torsoW: 1.0, torsoD: 1.0, limb: 1.0, shoulderX: 1.0 },
+  big: { torsoW: 1.14, torsoD: 1.12, limb: 1.16, shoulderX: 1.1 },
+};
+function buildFor(look) { return BUILD[look.build] || BUILD.slim; }
+
+const EXPRESSION_MOUTH = {
+  neutral: { geo: mouthNeutralGeo, rot: 0 },
+  happy: { geo: mouthSmileGeo, rot: 0 },
+  cold: { geo: mouthSmileGeo, rot: Math.PI },   // same arc, flipped into a frown
+  scared: { geo: mouthOpenGeo, rot: 0 },
+};
+const EXPRESSION_BROW = { neutral: eyebrowNeutralGeo, happy: eyebrowNeutralGeo, cold: eyebrowColdGeo, scared: eyebrowScaredGeo };
+
+// Switches a refined camper's face to one of "neutral"/"happy"/"cold"/"scared".
+// No-op (safely) on a classic camper, which has no `face` parts. Not wired
+// into any game.js logic yet -- exported for a future pass to call.
+export function setExpression(mesh, name) {
+  const face = mesh.userData.parts && mesh.userData.parts.face;
+  if (!face) return;
+  const m = EXPRESSION_MOUTH[name] || EXPRESSION_MOUTH.neutral;
+  face.mouth.geometry = m.geo;
+  face.mouth.rotation.z = m.rot;
+  face.eyebrows.geometry = EXPRESSION_BROW[name] || EXPRESSION_BROW.neutral;
+}
+
+function buildRefinedCamper(camper) {
+  const g = new THREE.Group();
+  const look = camper.look || { top: "flannel", topColor: camper.shirt, pants: "jeans", cap: camper.cap };
+  const build = buildFor(look);
+
+  const { legs, legParts, pantsMat } = buildLegs(look, build.limb);
+
+  const torsoW = torsoWidthFor(look.top), torsoD = torsoDepthFor(look.top);
+  const body = new THREE.Mesh(torsoGeoForRefined(look.top), topMaterial(look, torsoW, TORSO_H));
+  body.position.y = HIP_Y + TORSO_H / 2;
+  body.scale.set(build.torsoW, 1, build.torsoD);
+  body.castShadow = true;
+  attachTorsoTrims(body, look, torsoW, torsoD, pantsMat);
+  addOutline(body);
+
+  const { head, cap } = buildHeadCore(look);
+  const mouth = new THREE.Mesh(mouthNeutralGeo, mouthMat);
+  mouth.position.set(0, MOUTH_Y, MOUTH_Z);
+  head.add(mouth);
+  const eyebrows = new THREE.Mesh(eyebrowNeutralGeo, eyebrowMat);
+  head.add(eyebrows);
+  addOutline(head);
+  // Cap outline too, when it's a single mesh (the plain baseball cap): a
+  // beanie/bucket hat is a Group of two meshes with no geometry of its own,
+  // and outlining both would cost a second draw call per camper for those
+  // hat types, so it's skipped there (see the round-2 report on the outline
+  // budget). The hat is still the same size as it always was; only the
+  // three.js Mesh case gets the extra dark rim.
+  if (cap.isMesh) addOutline(cap);
+
+  const armLRig = makeArmRefined(-1, look, build.limb, build.shoulderX);
+  const armRRig = makeArmRefined(1, look, build.limb, build.shoulderX);
+
+  const rig = new THREE.Group();
+  rig.add(legs, body, head, armLRig.pivot, armRRig.pivot);
+  g.add(rig);
+  g.userData.parts = {
+    body, legs, head, cap, armL: armLRig.pivot, armR: armRRig.pivot, rig,
+    legL: legParts.legL, legR: legParts.legR, kneeL: legParts.kneeL, kneeR: legParts.kneeR,
+    elbowL: armLRig.elbow, elbowR: armRRig.elbow,
+    face: { mouth, eyebrows },
+  };
+  return g;
+}
+
+export function makeCamperMesh(camper) {
+  return REFINED_CAMPERS.has(camper.id) ? buildRefinedCamper(camper) : buildClassicCamper(camper);
+}
+
+// Named exports of both builders (bypassing the REFINED_CAMPERS check) for
+// dev/camper-refine.html's side-by-side comparison sheet -- not used by the
+// real game, which always goes through makeCamperMesh above.
+export { buildClassicCamper, buildRefinedCamper };
 
 // Bends the hip and knee pivots for a seated camper (thighs forward, shins
 // down and forward of the knee) and drops the whole mesh so the hips take the
@@ -1082,11 +1390,21 @@ export function setSeated(mesh, on) {
   p.kneeR.rotation.x = on ? KNEE_SIT_ANGLE : 0;
   mesh.position.y = on ? SEATED_DROP : 0;
   if (p.rig) p.rig.position.z = on ? -SEATED_BACK_OFFSET : 0;
+  // Refined-only: elbows bend more and rest toward the lap when seated,
+  // back to the idle bend when standing. No-op on a classic camper (no
+  // elbowL/elbowR in its parts).
+  if (p.elbowL && p.elbowR) {
+    p.elbowL.rotation.x = on ? ELBOW_SEATED : ELBOW_IDLE;
+    p.elbowR.rotation.x = on ? ELBOW_SEATED : ELBOW_IDLE;
+  }
 }
 
 // Walk cycle: swings the hip pivots (and, unless armsBusy, the arm pivots)
 // based on the actual distance moved this frame, so the swing stops the
-// instant the mover stops. Safe to call every frame with movedDist 0.
+// instant the mover stops. Safe to call every frame with movedDist 0. Also
+// bends the knee pivots (every camper has them) so a walking leg's knee
+// lifts on its backward swing instead of the whole leg swinging as one rigid
+// rod, and, on a refined camper only, adds a matching elbow bend.
 export function stepWalkCycle(mesh, movedDist, dt, armsBusy) {
   const p = mesh.userData.parts;
   if (!p.legL) return;
@@ -1098,10 +1416,26 @@ export function stepWalkCycle(mesh, movedDist, dt, armsBusy) {
   const legL = moving ? s * 0.5 : 0, legR = moving ? -s * 0.5 : 0;
   p.legL.rotation.x += (legL - p.legL.rotation.x) * lerp;
   p.legR.rotation.x += (legR - p.legR.rotation.x) * lerp;
+  if (p.kneeL && p.kneeR) {
+    // Each knee bends on its own leg's backward swing (foot lifting clear of
+    // the ground to come back through), and straightens on the forward
+    // swing/plant -- opposite phase between the two legs, same `s` the hips
+    // use so it stays locked to actual distance moved.
+    const kneeL = moving ? Math.max(0, -s) * 0.9 : 0;
+    const kneeR = moving ? Math.max(0, s) * 0.9 : 0;
+    p.kneeL.rotation.x += (kneeL - p.kneeL.rotation.x) * lerp;
+    p.kneeR.rotation.x += (kneeR - p.kneeR.rotation.x) * lerp;
+  }
   if (!armsBusy) {
     const armL = moving ? -s * 0.32 : 0, armR = moving ? s * 0.32 : 0;
     p.armL.rotation.x += (armL - p.armL.rotation.x) * lerp;
     p.armR.rotation.x += (armR - p.armR.rotation.x) * lerp;
+    if (p.elbowL && p.elbowR) {
+      const elbowL = moving ? ELBOW_IDLE + Math.max(0, s) * 0.5 : ELBOW_IDLE;
+      const elbowR = moving ? ELBOW_IDLE + Math.max(0, -s) * 0.5 : ELBOW_IDLE;
+      p.elbowL.rotation.x += (elbowL - p.elbowL.rotation.x) * lerp;
+      p.elbowR.rotation.x += (elbowR - p.elbowR.rotation.x) * lerp;
+    }
   }
 }
 

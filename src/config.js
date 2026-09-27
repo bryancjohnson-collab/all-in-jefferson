@@ -1,4 +1,18 @@
 // Tuning knobs for the prototype. Everything gameplay-related lives here.
+
+// Camper art refine pass (09/27/2026): which camper ids render through the new
+// jointed/faced/outlined builder in world.js (buildRefinedCamper) instead of the
+// original one (buildClassicCamper). Started on Johnny D only to verify the
+// approach (dev/camper-refine.html); round 2 (09/27/2026) rolled it out to the
+// whole roster once the torso/build/outline notes were addressed (see
+// dev/camper-refine-round2.html for the sheet). Don M and Alan are built
+// separately in buildWorld() with ids "don-m"/"alan" (not in campers.js), so
+// they are intentionally left off this list and stay on buildClassicCamper.
+export const REFINED_CAMPERS = new Set([
+  "tom-s", "tom-w", "chris-occ", "bryan-j", "brian-r",
+  "perry-s", "johnny-d", "spitty", "razoo", "scott-k",
+]);
+
 export const NIGHT_SECONDS = 300;          // real seconds from 9:00 PM to 5:30 AM
 export const NIGHT_START_MIN = 21 * 60;    // 9:00 PM in minutes
 export const NIGHT_END_MIN = 29 * 60 + 30; // 5:30 AM next day
@@ -199,10 +213,10 @@ export const HEAT = {
 export const HEADLAMP = {
   threshold: 25,   // raw fire level where it starts fading in
   fadeRange: 14,    // fully on by threshold - fadeRange (~11)
-  intensity: 50,
-  angle: 0.3,
+  intensity: 85,    // Bryan 09/27: a little brighter (was 50)
+  angle: 0.34,
   penumbra: 0.4,
-  distance: 7.5,
+  distance: 8.5,
 };
 
 // Phone-only gentle camera follow (Bryan: "cam in a little", then a follow so the
