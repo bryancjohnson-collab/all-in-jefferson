@@ -6,11 +6,13 @@
 // approach (dev/camper-refine.html); round 2 (09/27/2026) rolled it out to the
 // whole roster once the torso/build/outline notes were addressed (see
 // dev/camper-refine-round2.html for the sheet). Don M and Alan are built
-// separately in buildWorld() with ids "don-m"/"alan" (not in campers.js), so
-// they are intentionally left off this list and stay on buildClassicCamper.
+// separately in buildWorld() with ids "don-m"/"alan" (not in campers.js); a
+// third pass (09/27/2026) gave them full `look` objects and added them here
+// too, so the two non-roster cameos match the refined roster look.
 export const REFINED_CAMPERS = new Set([
   "tom-s", "tom-w", "chris-occ", "bryan-j", "brian-r",
   "perry-s", "johnny-d", "spitty", "razoo", "scott-k",
+  "don-m", "alan",
 ]);
 
 export const NIGHT_SECONDS = 300;          // real seconds from 9:00 PM to 5:30 AM
@@ -61,14 +63,25 @@ export const FIRE = {
 export const DIFFICULTY = {
   easy: { name: "EASY", wood: 24, gas: 4, burn: 1.0, blurb: "Big pile, extra gas, slow burn." },
   camp: { name: "NORMAL", wood: 16, gas: 3, burn: 1.65, blurb: "The real thing." },
-  hell: { name: "HARD", wood: 14, gas: 2, burn: 1.95, blurb: "Short pile, two gas, the fastest burn. Good luck." },
+  hell: { name: "HARD", wood: 15, gas: 2, burn: 1.95, blurb: "Short pile, two gas, the fastest burn. Good luck." },
 };
 
 // One-time power-ups, earned once per night.
+// Pallet redesign (09/27/2026, Bryan: "too easy to get"): the old version handed
+// +8 wood the instant hotSeconds crossed the line, no matter how much wood was
+// still in the pile. Now hitting woodHotSeconds only unlocks the *chance* — Johnny
+// D remembers a pallet is behind the shed, and it only actually appears once wood
+// has also fallen to palletWoodAtOrBelow or less. It is a carryable prop (leaning
+// against the cabin, see LAYOUT.pallet below) the player has to walk over, grab,
+// and carry to the wood pile themselves; breaking it up there gives palletBreakWood
+// (6, down from the old flat 8) instead of wood appearing for free. Carry it to the
+// fire instead and Tom S stops you: it disappears, no wood. See docs/DESIGN.md and
+// docs/CAMPERS.md.
 export const POWERUPS = {
-  woodHotSeconds: 10,   // cumulative seconds in Hell's Anus earns the pallet
-  woodBonus: 8,
-  gasGustsBlocked: 2,   // fully blocked gusts earns the gas can
+  woodHotSeconds: 10,       // cumulative seconds in Hell's Anus, ever, unlocks the pallet
+  palletWoodAtOrBelow: 2,   // ...but it only actually appears once wood is this low or lower
+  palletBreakWood: 6,       // wood from breaking the pallet up at the wood pile
+  gasGustsBlocked: 2,       // fully blocked gusts earns the gas can
   gasBonus: 2,
 };
 
@@ -251,4 +264,9 @@ export const LAYOUT = {
   cooler: { x: -4.8, z: -1.4 },   // moved away from the wood pile 09/21 so a wood run cannot grab the beer
   stick: { x: 4.0, z: 3.4 },
   roadEntry: { x: 10, z: 6 },
+  // Pallet powerup (09/27/2026): leaning against the cabin, off to the side of
+  // LAYOUT.cabinDoor so it doesn't sit on a camper's walk-to-bed path. Distance
+  // from origin (~7.6) is just past PLAYER.maxRadius (7.2) but within reach of a
+  // player standing at the boundary, same as the cabin/camper doors themselves.
+  pallet: { x: -5.1, z: -5.7 },
 };

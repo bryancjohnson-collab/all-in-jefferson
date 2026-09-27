@@ -120,6 +120,27 @@ export function buildCabin() {
   ridge.rotation.x = Math.PI / 2; ridge.position.set(0, wallH + peak, 0);
   g.add(slabR, slabL, ridge);
 
+  // Gable ends (Bryan 09/27: the title camera looked straight into the open triangle
+  // under the roof). A dark backing triangle closes it; short log courses over it
+  // carry the wall pattern up to the ridge.
+  const gShape = new THREE.Shape();
+  gShape.moveTo(-width / 2 - 0.05, 0); gShape.lineTo(width / 2 + 0.05, 0); gShape.lineTo(0, peak); gShape.closePath();
+  const gableGeo = new THREE.ExtrudeGeometry(gShape, { depth: 0.1, bevelEnabled: false });
+  [depth / 2, -depth / 2].forEach((z) => {
+    const plate = new THREE.Mesh(gableGeo, barkMat);
+    plate.position.set(0, wallH, z - 0.05); plate.castShadow = true;
+    g.add(plate);
+    for (let k = 0; ; k++) {
+      const y = spacing * 0.5 + k * spacing;
+      const len = width * (1 - (y + logR) / peak);
+      if (len < 0.5) break;
+      const gl = new THREE.Mesh(new THREE.CylinderGeometry(logR, logR, len, 7), barkMat);
+      gl.rotation.z = Math.PI / 2; gl.castShadow = true;
+      gl.position.set(0, wallH + y, z);
+      g.add(gl);
+    }
+  });
+
   // Stone chimney, punching through the back roof slope.
   const chimney = new THREE.Mesh(new THREE.BoxGeometry(0.5, 1.7, 0.5), lambert("#6f6a62"));
   chimney.position.set(1.1, wallH + peak * 0.55, -0.9);
@@ -141,7 +162,11 @@ export function buildCabin() {
   const postR = post.clone(); postR.position.set(0.95, 1.15, depth / 2 + 0.85);
   const header = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.12, 0.12), postMat);
   header.position.set(0, 2.3, depth / 2 + 0.85);
-  g.add(deck, step1, step2, postL, postR, header);
+  // Porch roof: a shallow shed roof from the wall down to the header.
+  const porchRoof = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.08, 1.15), roofMat);
+  porchRoof.position.set(0, 2.42, depth / 2 + 0.5);
+  porchRoof.rotation.x = 0.14; porchRoof.castShadow = true;
+  g.add(deck, step1, step2, postL, postR, header, porchRoof);
 
   // Door, two warm windows, and a lantern by the door.
   const door = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.8, 0.08), lambert("#4a2e14"));

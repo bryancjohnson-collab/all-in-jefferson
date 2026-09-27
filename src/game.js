@@ -1,16 +1,16 @@
 // All In Jefferson, prototype 1: the fire loop on a flat plane with box campers.
 import * as THREE from "three";
-import { NIGHT_SECONDS, NIGHT_START_MIN, NIGHT_END_MIN, MIDNIGHT_MIN, FIRE, WIND, CAMPER, BEAR, PLAYER, LAYOUT, POWERUPS, EVENTS, HOT_LEVELS, SMOKE, DIFFICULTY, HINTS, PHONE_FOLLOW, KEG, HEAT, HEADLAMP } from "./config.js?v=131";
-import { initSound, coyoteYip, whoosh, growl, bang, startCrackle, setCrackle, footstep, logLand, pokeSound, buzz, playIntroThenLoop, startLoop, stopMusic, playDawn, toggleMusic, musicEnabled, musicActive, bearTheme, bearRideTheme, bearWomp, duckMusic, hissSteam } from "./sound.js?v=131";
-import { campers as roster, pickPlayer, commitPick, snacks, emotes, comments, coolerComments, kegCheers, kegFireYell } from "./campers.js?v=131";
-import { buildWorld, makeCamperMesh, makeChairMesh, makeLogMesh, setSeated, stepWalkCycle, stepBearWalk, SEATED_DROP, setExpression } from "./world.js?v=131";
-import { buildMiniKeg } from "./props.js?v=131";
-import { updateFireVisuals } from "./fire.js?v=131";
-import { initShareCardButtons } from "./sharecard.js?v=131";
+import { NIGHT_SECONDS, NIGHT_START_MIN, NIGHT_END_MIN, MIDNIGHT_MIN, FIRE, WIND, CAMPER, BEAR, PLAYER, LAYOUT, POWERUPS, EVENTS, HOT_LEVELS, SMOKE, DIFFICULTY, HINTS, PHONE_FOLLOW, KEG, HEAT, HEADLAMP } from "./config.js?v=135";
+import { initSound, coyoteYip, whoosh, growl, bang, startCrackle, setCrackle, footstep, logLand, pokeSound, buzz, playIntroThenLoop, startLoop, stopMusic, playDawn, toggleMusic, musicEnabled, musicActive, bearTheme, bearRideTheme, bearWomp, duckMusic, hissSteam } from "./sound.js?v=135";
+import { campers as roster, pickPlayer, commitPick, snacks, emotes, comments, coolerComments, kegCheers, kegFireYell } from "./campers.js?v=135";
+import { buildWorld, makeCamperMesh, makeChairMesh, makeLogMesh, makePalletMesh, setSeated, stepWalkCycle, stepBearWalk, SEATED_DROP, setExpression } from "./world.js?v=135";
+import { buildMiniKeg } from "./props.js?v=135";
+import { updateFireVisuals } from "./fire.js?v=135";
+import { initShareCardButtons } from "./sharecard.js?v=135";
 
 const canvas = document.getElementById("scene");
 const world = buildWorld(canvas);
-const { renderer, scene, camera, fireLight, keyLight, flames, sparks, coals, bear: bearMesh, streaks, don: donMesh, alan: alanMesh, bees: beesMesh, breath: breathMesh, gasCan, pitLogs, hintArrow, snackToken, stick: stickMesh, star: starMesh, starlink: starlinkMesh, trees, smoke, woodPile } = world;
+const { renderer, scene, camera, fireLight, keyLight, flames, sparks, coals, bear: bearMesh, streaks, don: donMesh, alan: alanMesh, bees: beesMesh, breath: breathMesh, gasCan, pitLogs, hintArrow, snackToken, stick: stickMesh, star: starMesh, starlink: starlinkMesh, trees, smoke, woodPile, pallet: palletMesh } = world;
 // Bundle for the single fire.js visual hook driven from render(): flame sprites,
 // sparks, the coal bed and the pit logs, all purely cosmetic and keyed off
 // state.fire's authoritative level/hot/hotTier.
@@ -155,7 +155,7 @@ const state = {
   burn: FIRE.burnPerSec,
   alan: { at: rand(EVENTS.alanMin, EVENTS.alanMax), running: false, t: 0, a0: 0, done: false, mesh: null, bubble: { text: "", until: 0, cls: "" } },
   stepClock: 0,
-  hints: { woodEver: false, gasEver: false, lastStick: -999, lastWood: -999, lastGas: -999, donShown: false, target: null, until: 0 },
+  hints: { woodEver: false, gasEver: false, lastStick: -999, lastWood: -999, lastGas: -999, donShown: false, palletShown: false, target: null, until: 0 },
   stick: { held: false },
   beer: { available: true, thrown: false, fuse: 0, exploded: false },
   // Camper-tossed full can that goes in the fire and explodes, once a night. Separate
@@ -176,7 +176,11 @@ const state = {
   smoke: { inIt: false, coughIn: 0 },
   sky: { kind: null, t: 0, nextIn: rand(EVENTS.skyMinGap, EVENTS.skyMaxGap) },
   pokeAnim: 0,
-  powerups: { woodEarned: false, gasEarned: false, gustsBlocked: 0 },
+  // Pallet redesign (09/27/2026): palletRemembered gates the trigger (Johnny D
+  // remembers it, once per night) separately from whether it was ever resolved
+  // (palletBroken at the wood pile for +6 wood, or palletBurned when Tom S stops
+  // you at the fire) — see config.js's POWERUPS comment and docs/DESIGN.md.
+  powerups: { palletRemembered: false, palletBroken: false, palletBurned: false, gasEarned: false, gustsBlocked: 0 },
   wood: FIRE.woodPile,
   gas: FIRE.gasCount,
   gasUsed: 0,
@@ -352,7 +356,7 @@ ui.actionBtn.addEventListener("pointerdown", (e) => { spacePressed = true; tryRe
 // Touch speech strip state (see updateTouchSpeech/resetTouchSpeech far below):
 // declared here, ahead of buildCrew's own call further down, since buildCrew
 // runs at module load time and resetTouchSpeech reads these immediately.
-const CANON_SPEECH_MATCHES = ["What the hell was that", "No Glass in the fire", "Beeeees", "Gentlemen"];
+const CANON_SPEECH_MATCHES = ["What the hell was that", "No Glass in the fire", "No Pallets in the fire", "Beeeees", "Gentlemen"];
 const SPEECH_DON_COLOR = "#c9a86a", SPEECH_ALAN_COLOR = "#ffb347";
 const speechLanes = [null, null];
 const speechBacklog = [];
@@ -1082,11 +1086,10 @@ canvas.addEventListener("webglcontextrestored", () => {
 });
 
 // Wood pile visual: depletes/restocks with state.wood. sync() no-ops unless
-// wood, the difficulty's starting pile size, or the pallet powerup actually
-// changed since the last call, so calling it every frame costs nothing once
-// the pile matches state.
+// wood or the difficulty's starting pile size actually changed since the last
+// call, so calling it every frame costs nothing once the pile matches state.
 function syncWoodPile() {
-  woodPile.sync(state.wood, DIFFICULTY[state.diff].wood, state.powerups.woodEarned);
+  woodPile.sync(state.wood, DIFFICULTY[state.diff].wood);
 }
 
 function update(dt) {
@@ -1205,6 +1208,10 @@ function updatePlayer(dt) {
   const nearStick = !state.stick.held && distStick < reachStick && distStick <= distWood;
   const nearCooler = dist2(player.pos, LAYOUT.cooler) < reach + 0.2;
   const nearDon = donMesh.visible && !player.carrying && dist2(player.pos, donMesh.position) < reach + 0.6;
+  // Pallet: available once Johnny D remembers it (state.powerups.palletRemembered)
+  // and not yet resolved for the night (broken up at the pile, or burned per Tom S).
+  const palletAvailable = state.powerups.palletRemembered && !state.powerups.palletBroken && !state.powerups.palletBurned;
+  const nearPallet = palletAvailable && !player.carrying && dist2(player.pos, LAYOUT.pallet) < reach;
   const kegTarget = player.carrying === "keg" ? findKegTarget(reach) : null;
   const heatBlocked = state.heat.forced;
   ui.bottle.hidden = !(state.bottle.given && !state.bottle.used);
@@ -1235,6 +1242,14 @@ function updatePlayer(dt) {
     if (kegTarget) { hint = `Space: top off ${kegTarget.data.name}`; label = "POUR"; targetPos = kegTarget.mesh.position; targetRadius = 0.9; targetFollowRadius = 0.5; targetHeight = 1.7; }
     else if (nearFire) { hint = "Space: pour it on the fire (bad idea)"; label = "POUR"; targetPos = ORIGIN_XZ; targetRadius = 2.5; targetFollowRadius = 1.3; targetHeight = 1.6; }
     else { hint = "Carry the keg to a camper and pour"; label = "BEER"; }
+  } else if (player.carrying === "pallet") {
+    // Same "bad idea, Space to trigger the trap anyway" shape as the keg-on-the-fire
+    // branch above: an explicit press rather than firing the moment the player walks
+    // into fire reach, so every wrong-disposal action in the game works the same way.
+    hint = nearWood ? "Space: break the pallet up for wood" : nearFire ? "Space: try to burn it (bad idea)" : "Carry the pallet to the wood pile";
+    label = nearWood ? "BREAK IT UP" : nearFire ? "INTO FIRE?" : "PALLET";
+    if (nearWood) { targetPos = LAYOUT.woodPile; targetFollowRadius = 0.75; targetHeight = 0.75; }
+    else if (nearFire) { targetPos = ORIGIN_XZ; targetRadius = 2.5; targetFollowRadius = 1.3; targetHeight = 1.6; }
   } else if (nearCooler && state.beer.available && !(nearWood && state.wood > 0)) {
     hint = "Space: grab a full, unopened beer"; label = "BEER"; targetPos = LAYOUT.cooler; targetFollowRadius = 0.5; targetHeight = 0.6;
   } else if (nearStick) {
@@ -1245,6 +1260,8 @@ function updatePlayer(dt) {
   } else if (nearGas) {
     hint = state.gas > 0 ? "Space: grab the gas can" : "The gas can is empty"; label = state.gas > 0 ? "GRAB GAS" : "EMPTY";
     if (state.gas > 0) { targetPos = LAYOUT.gasCan; targetFollowRadius = 0.35; targetHeight = 0.8; }
+  } else if (nearPallet) {
+    hint = "Space: grab the pallet"; label = "GRAB PALLET"; targetPos = LAYOUT.pallet; targetRadius = 0.75; targetFollowRadius = 0.55; targetHeight = 0.9;
   } else if (nearDon) {
     hint = state.don.gaveKeg ? "Don M has nothing else for you." : "Space: see what Don M wants"; label = "TALK";
     if (!state.don.gaveKeg) { targetPos = donMesh.position; targetRadius = 0.9; targetFollowRadius = 0.5; targetHeight = 1.85; }
@@ -1284,6 +1301,7 @@ function updatePlayer(dt) {
       state.don.gaveKeg = true;
       state.keg.pours = KEG.pours;
       player.carrying = "keg"; showCarry("keg");
+      setExpression(donMesh, "happy");
       bubble(state.don, "Gentlemen. Here you go.", 4, "");
       say("Don M hands you a mini keg and goes back to standing there.", 5);
       state.log.push("Don M gave a keg");
@@ -1368,6 +1386,26 @@ function updatePlayer(dt) {
     say("The keg hits the coals. Hiss, and a wall of steam. That's the whole keg gone.", 5);
     state.log.push("Poured the keg on the fire");
     hissSteam();
+  } else if (player.carrying === "pallet" && nearWood) {
+    player.carrying = null; dropCarry();
+    state.wood += POWERUPS.palletBreakWood;
+    state.powerups.palletBroken = true;
+    say(`You break up the pallet. +${POWERUPS.palletBreakWood} wood.`, 4);
+    state.log.push(`Broke up the pallet for wood at ${clockText()}`);
+    logLand();
+  } else if (player.carrying === "pallet" && nearFire) {
+    // Tom S's line, verbatim (Bryan). Same player-is-Tom-S / Tom-S-seated /
+    // Tom-S-in-the-cabin shape as the can-beer and no-glass events above (search
+    // "from the cabin" in this file). No wood either way; the pallet is gone for
+    // the night.
+    player.carrying = null; dropCarry();
+    state.powerups.palletBurned = true;
+    const tomS = campers.find((c) => c.data.id === "tom-s");
+    const tomLine = "No Pallets in the fire! Only you can prevent forest fires!!";
+    if (player.data.id === "tom-s") pbubble(tomLine, 5, "");
+    else if (tomS && tomS.state === "seated") bubble(tomS, tomLine, 5, "");
+    else say(`Tom S (from the cabin): ${tomLine}`, 6, true);
+    state.log.push("Tom S stopped the pallet going in the fire");
   } else if (!player.carrying && nearCooler && state.beer.available && !(nearWood && state.wood > 0)) {
     state.beer.available = false; player.carrying = "beer"; showCarry("beer");
     say("A full one. Unopened. You know what to do.", 4);
@@ -1377,6 +1415,8 @@ function updatePlayer(dt) {
     state.wood -= 1; player.carrying = "log"; showCarry("log"); state.hints.woodEver = true;
   } else if (!player.carrying && nearGas && state.gas > 0) {
     player.carrying = "gas"; showCarry("gas"); state.hints.gasEver = true;
+  } else if (!player.carrying && nearPallet) {
+    player.carrying = "pallet"; showCarry("pallet"); state.hints.palletShown = true;
   } else if (!player.carrying && nearFire && state.bottle.given && !state.bottle.used) {
     state.bottle.used = true;
     state.bottle.breath = 1.7;
@@ -1402,9 +1442,11 @@ function showCarry(kind) {
   const m = kind === "log" ? makeLogMesh()
     : kind === "beer" ? new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.32, 10), new THREE.MeshLambertMaterial({ color: "#c0c8d0" }))
     : kind === "keg" ? buildMiniKeg()
+    : kind === "pallet" ? makePalletMesh()
     : new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.45, 0.28), new THREE.MeshLambertMaterial({ color: "#d62828" }));
   m.position.set(0.45, 0.95, 0.1);
   if (kind === "keg") m.rotation.z = Math.PI / 2.4;   // tipped in the arm, like the log
+  if (kind === "pallet") { m.scale.setScalar(0.55); m.rotation.x = Math.PI / 2.5; m.rotation.z = Math.PI / 9; }
   player.mesh.add(m);
   player.carryMesh = m;
 }
@@ -1454,16 +1496,21 @@ function updateFire(dt) {
   f.hotTier = tier;
   f.peakTier = Math.max(f.peakTier, tier);
   f.hot = hotNow;
-  if (hotNow) {
-    f.hotSeconds += dt;
-    if (!state.powerups.woodEarned && f.hotSeconds >= POWERUPS.woodHotSeconds) {
-      state.powerups.woodEarned = true;
-      state.wood += POWERUPS.woodBonus;
-      say(`Johnny D remembered the pallet behind the shed. +${POWERUPS.woodBonus} wood.`, 6);
-      const jd = campers.find((c) => c.data.id === "johnny-d");
-      if (jd && jd.mesh.visible) bubble(jd, "There's a whole pallet behind the shed!", 5, "");
-      state.log.push("Johnny D found the pallet");
-    }
+  if (hotNow) f.hotSeconds += dt;
+
+  // Pallet trigger (09/27/2026 redesign): both conditions have to be true, but
+  // they don't have to become true at the same moment. (a) is "ever, this night"
+  // (f.hotSeconds only climbs, never resets, so once it crosses the line it stays
+  // crossed) — checked every frame, independent of hotNow, so a wood count that
+  // drops to the line later — long after the fire cooled back down — still fires
+  // it. (b) is real-time: wood at or below palletWoodAtOrBelow right now. No wood
+  // changes hands here; it just unlocks the prop leaning against the cabin.
+  if (!state.powerups.palletRemembered && f.hotSeconds >= POWERUPS.woodHotSeconds && state.wood <= POWERUPS.palletWoodAtOrBelow) {
+    state.powerups.palletRemembered = true;
+    say("Johnny D remembered the pallet behind the shed.", 6);
+    const jd = campers.find((c) => c.data.id === "johnny-d");
+    if (jd && jd.mesh.visible) bubble(jd, "There's a whole pallet behind the shed!", 5, "");
+    state.log.push("Johnny D remembered the pallet");
   }
 }
 
@@ -1699,7 +1746,7 @@ function walkToward(mesh, target, step) {
 // precise mesh raycast, so the thin poker stick is easy to hit.
 const tapRaycaster = new THREE.Raycaster();
 const tapGroundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-const TAP_HIT_RADIUS = { woodPile: 1.1, gasCan: 1.1, cooler: 1.1, stick: 1.7, don: 1.3 };
+const TAP_HIT_RADIUS = { woodPile: 1.1, gasCan: 1.1, cooler: 1.1, stick: 1.7, don: 1.3, pallet: 1.1 };
 function attemptTapToGo(clientX, clientY) {
   if (!isTouch || state.phase !== "playing" || state.paused) return;
   const ndc = new THREE.Vector2((clientX / window.innerWidth) * 2 - 1, -(clientY / window.innerHeight) * 2 + 1);
@@ -1722,6 +1769,10 @@ function attemptTapToGo(clientX, clientY) {
     { pos: LAYOUT.cooler, r: TAP_HIT_RADIUS.cooler },
     { pos: LAYOUT.stick, r: TAP_HIT_RADIUS.stick, active: !state.stick.held },
     { pos: donMesh.position, r: TAP_HIT_RADIUS.don, active: donMesh.visible && !player.carrying },
+    {
+      pos: LAYOUT.pallet, r: TAP_HIT_RADIUS.pallet,
+      active: state.powerups.palletRemembered && !state.powerups.palletBroken && !state.powerups.palletBurned && !player.carrying,
+    },
   ];
   let best = null, bestDist = Infinity;
   candidates.forEach((c) => {
@@ -1813,6 +1864,7 @@ function updateEvents(dt) {
     donMesh.position.set(Math.sin(a) * EVENTS.donRadius, 0, Math.cos(a) * EVENTS.donRadius);
     donMesh.lookAt(0, 0, 0);
     donMesh.visible = true;
+    setExpression(donMesh, "neutral");
     state.don.mesh = donMesh;
     bubble(state.don, "Gentlemen!", 4, "");
     const spotter = pick(campers.filter((c) => c.state === "seated"));
@@ -1877,6 +1929,7 @@ function updateEvents(dt) {
   if (!al.done && !al.running && state.t >= al.at) {
     al.running = true; al.t = 0; al.a0 = Math.random() * Math.PI * 2; al.mesh = alanMesh;
     alanMesh.visible = true; beesMesh.visible = true;
+    setExpression(alanMesh, "scared");
     bubble(al, "Beeeees! I don't have an Epipen!", 4.5, "leaving");
     const s1 = pick(campers.filter((c) => c.state === "seated"));
     if (s1) setTimeout(() => bubble(s1, "Alan?", 3, ""), 1200);
@@ -2099,6 +2152,14 @@ function updateHints(dt) {
   hintArrow.visible = false;
   if (donMesh.visible && !h.donShown && !state.don.gaveKeg) { h.donShown = true; showHint(donMesh.position, "Don M is at the tree line. Walk over and press Space. He might have something."); return; }
   if (!donMesh.visible) h.donShown = false;
+  // Pallet (09/27/2026): shown once, the first time it's available — never repeats
+  // (h.palletShown also gets set the moment the player grabs it on their own, in
+  // updatePlayer, so finding it before the hint fires never triggers this after).
+  if (!h.palletShown && state.powerups.palletRemembered && !state.powerups.palletBroken && !state.powerups.palletBurned) {
+    h.palletShown = true;
+    showHint(new THREE.Vector3(LAYOUT.pallet.x, 0, LAYOUT.pallet.z), "There's a pallet leaning against the cabin. Grab it and break it up at the wood pile.");
+    return;
+  }
   if (!h.gasEver && state.gas > 0 && f < HINTS.gasBelow && t - h.lastGas > HINTS.gasEvery) { h.lastGas = t; showHint(new THREE.Vector3(LAYOUT.gasCan.x, 0, LAYOUT.gasCan.z), "The gas can. Grab it, pour it on the fire. Big flare, burns fast."); return; }
   if (!h.woodEver && f < HINTS.woodBelow && t - h.lastWood > HINTS.woodEvery) { h.lastWood = t; showHint(new THREE.Vector3(LAYOUT.woodPile.x, 0, LAYOUT.woodPile.z), "The wood pile. Space to grab a log, walk it over, Space at the fire."); return; }
   if (!state.stick.held && t > HINTS.stickAfter && t - h.lastStick > HINTS.stickEvery) { h.lastStick = t; showHint(new THREE.Vector3(LAYOUT.stick.x, 0, LAYOUT.stick.z), "That's the poker stick, leaning by the wood pile. Grab it and you can poke the fire."); return; }
@@ -2291,7 +2352,7 @@ function endNight(alone) {
       <li>Taken by the bear: ${(() => { const left = [...returned]; return bearVictims.map((n) => { const i = left.indexOf(n); if (i >= 0) { left.splice(i, 1); return `${n} (returned, wrong chair)`; } return n; }); })().join(", ") || "nobody"}</li>
       <li>Gas used: ${state.gasUsed}. Fire-breathing: ${state.bottle.used ? "yes" : "no"}. Beer bomb: ${state.beer.exploded ? "yes" : state.beer.thrown ? "wasted" : "no"}. Beer can in the fire: ${state.canBomb.phase === "done" && state.canBomb.tosser ? `yes, ${state.canBomb.tosser.data.name}` : "no"}</li>
       <li>Time in Hell's Anus: ${hotPts}s (+${hotPts}). Peak: ${state.fire.peakTier ? HOT_LEVELS[state.fire.peakTier - 1].name : "never got there"}</li>
-      <li>Earned: ${[state.powerups.woodEarned ? "the pallet" : null, state.powerups.gasEarned ? "the gas can" : null, state.don.gaveKeg ? "a mini keg from Don M" : null].filter(Boolean).join(", ") || "nothing"}</li>
+      <li>Earned: ${[state.powerups.palletBroken ? "the pallet" : state.powerups.palletBurned ? "the pallet (burned, Tom S said no)" : null, state.powerups.gasEarned ? "the gas can" : null, state.don.gaveKeg ? "a mini keg from Don M" : null].filter(Boolean).join(", ") || "nothing"}</li>
       <li>Wood placement: ${state.fire.spreads} good spreads, ${state.fire.smothers} smothers${state.log.some((l) => l.startsWith("Alan")) ? ". Alan came through with the bees." : ""}</li>
       <li>Keg: ${state.don.gaveKeg ? (state.log.includes("Poured the keg on the fire") ? "dumped in the fire" : `${state.log.filter((l) => l.startsWith("Topped off")).length} of ${KEG.pours} poured`) : "never got it"}</li>
     </ul>
@@ -2366,6 +2427,9 @@ function render(dt) {
   ui.wood.textContent = state.wood;
   ui.gas.textContent = state.gas;
   gasCan.visible = state.gas > 0;
+  // Pallet: visible leaning against the cabin only while it's available and not
+  // currently in the player's arms (showCarry adds its own carried copy).
+  palletMesh.visible = state.powerups.palletRemembered && !state.powerups.palletBroken && !state.powerups.palletBurned && player.carrying !== "pallet";
   ui.tWood.textContent = state.wood;
   ui.tGas.textContent = state.gas;
   if (state.message.until < state.t && !state.message.hint) ui.message.textContent = "";

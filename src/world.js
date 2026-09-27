@@ -4,10 +4,10 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
-import { LAYOUT, FIRE, REFINED_CAMPERS } from "./config.js?v=131";
-import { spawnModel, lerpColor, mulberry32, buildCabin, buildCooler, buildGasCan, buildCampChair, buildPokerStick } from "./props.js?v=131";
-import { buildTravelTrailer } from "./trailer.js?v=131";
-import { buildFire } from "./fire.js?v=131";
+import { LAYOUT, FIRE, REFINED_CAMPERS } from "./config.js?v=135";
+import { spawnModel, lerpColor, mulberry32, buildCabin, buildCooler, buildGasCan, buildCampChair, buildPokerStick } from "./props.js?v=135";
+import { buildTravelTrailer } from "./trailer.js?v=135";
+import { buildFire } from "./fire.js?v=135";
 
 export function buildWorld(canvas) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -107,6 +107,18 @@ export function buildWorld(canvas) {
   cabin.position.set(-7.5, 0, -7);
   cabin.rotation.y = Math.atan2(LAYOUT.cabinDoor.x - (-7.5), LAYOUT.cabinDoor.z - (-7));
   scene.add(cabin);
+
+  // Pallet powerup (09/27/2026): leaning against the cabin, off to the side of
+  // the door. Hidden until Johnny D remembers it (game.js sets `pallet.visible`
+  // from state.powerups.palletRemembered, and hides it again once the pallet is
+  // picked up, broken up or burned). Tipped up on its edge and rotated to roughly
+  // match the cabin wall's own angle so it reads as propped against the building.
+  const pallet = makePalletMesh();
+  pallet.position.set(LAYOUT.pallet.x, 0.4, LAYOUT.pallet.z);
+  pallet.rotation.y = cabin.rotation.y + Math.PI / 2.2;
+  pallet.rotation.x = Math.PI * 0.42;
+  pallet.visible = false;
+  scene.add(pallet);
 
   // Travel trailer: local +z is the door side, so this is the same lookAt-style
   // rotation the old pop-up used (LAYOUT.camperDoor faces the fire pit).
@@ -213,18 +225,24 @@ export function buildWorld(canvas) {
 
   // Don M: the woods cameo. Hunter orange jacket and cap, built from the same
   // camper rig so he matches the crew. Stands between two trees. Keeps his
-  // Step 2 look (flannel, same cap and shirt color) per Bryan (09/25); only the
-  // rounded body is new.
+  // Step 2 look (flannel, same cap and shirt color) per Bryan (09/25); the
+  // rounded body was step 4, and the refine pass (09/27/2026) put him on
+  // buildRefinedCamper (id in REFINED_CAMPERS, config.js) with build "slim"
+  // (docs/CAMPERS.md doesn't call out a build for him, so he gets the same
+  // default as most of the roster).
   const don = makeCamperMesh({ id: "don-m", cap: "#ff6a00", shirt: "#ff6a00",
-    look: { top: "flannel", topColor: "#ff6a00", pants: "jeans", cap: "#ff6a00" } });
+    look: { build: "slim", top: "flannel", topColor: "#ff6a00", pants: "jeans", cap: "#ff6a00", hair: { color: "#4a3420" } } });
   don.visible = false;
   scene.add(don);
 
   // Alan: white tee with a bee print, no cap, arms up and flailing, a swarm of
-  // bees behind him. Keeps his Step 2 look (Bryan, 09/25); only the rounded
-  // body and the bee print are new.
-  const alan = makeCamperMesh({ id: "alan", cap: "#f4f1ea", shirt: "#f4f1ea", hat: "none",
-    look: { top: "tee", topColor: "#f4f1ea", graphic: { color: "#1c1712", shape: "bee" }, pants: "jeans", hair: { color: "#4a3420" } } });
+  // bees behind him. Keeps his Step 2 look (Bryan, 09/25); the rounded body
+  // and bee print were step 4, and the refine pass (09/27/2026) put him on
+  // buildRefinedCamper too, with build "slim" (same reasoning as Don M above).
+  // No `cap` in his look object (and no `hat` field needed) keeps him
+  // hatless, same as before the refine pass.
+  const alan = makeCamperMesh({ id: "alan",
+    look: { build: "slim", top: "tee", topColor: "#f4f1ea", graphic: { color: "#1c1712", shape: "bee" }, pants: "jeans", hair: { color: "#4a3420" } } });
   const alanParts = alan.userData.parts;
   alanParts.armL.rotation.z = 2.7; alanParts.armL.rotation.x = -0.2;
   alanParts.armR.rotation.z = -2.7; alanParts.armR.rotation.x = 0.15;   // arms up, flailing
@@ -397,7 +415,7 @@ export function buildWorld(canvas) {
   window.addEventListener("resize", resize);
   resize();
 
-  return { renderer, scene, camera, fireLight, keyLight, flames, embers, sparks, coals, bear, windArrow, streaks, don, alan, bees, breath, pitLogs, hintArrow, snackToken, stick, star, starlink, woodPile, gasCan, cooler, trees, smoke };
+  return { renderer, scene, camera, fireLight, keyLight, flames, embers, sparks, coals, bear, windArrow, streaks, don, alan, bees, breath, pitLogs, hintArrow, snackToken, stick, star, starlink, woodPile, gasCan, cooler, pallet, trees, smoke };
 }
 
 // ---------- Camper rig ----------
@@ -1513,14 +1531,59 @@ export function makeLogMesh() {
   return m;
 }
 
+// ---------- Pallet powerup prop (09/27/2026) ----------
+// A simple low-poly pallet: three stringers under six deck slats, chunky and
+// flat-shaded, pale grey-brown ("#b7ac95"/"#8d8371") to match the weathered-wood
+// tones the wood pile's overflow logs already use, so it reads as the same
+// family of reclaimed lumber. Built flat, as if resting on the ground with the
+// deck facing up: buildWorld's world-standing instance is rotated to lean it
+// against the cabin, and game.js's showCarry (a smaller, scaled instance) tips
+// it into the player's arms, the same way both already handle the log and the
+// mini keg.
+const PALLET_LEN = 1.1, PALLET_WID = 0.9;
+export function makePalletMesh() {
+  const g = new THREE.Group();
+  const slatMat = new THREE.MeshLambertMaterial({ color: "#b7ac95", flatShading: true });
+  const stringerMat = new THREE.MeshLambertMaterial({ color: "#8d8371", flatShading: true });
+  const stringerH = 0.09, stringerW = 0.1, slatT = 0.045;
+  const stringerGeo = new THREE.BoxGeometry(PALLET_LEN, stringerH, stringerW);
+  [-(PALLET_WID / 2 - stringerW / 2), 0, PALLET_WID / 2 - stringerW / 2].forEach((z) => {
+    const s = new THREE.Mesh(stringerGeo, stringerMat);
+    s.position.set(0, stringerH / 2, z);
+    s.castShadow = true;
+    g.add(s);
+  });
+  const slatCount = 6, slatGap = 0.02;
+  const slatW = PALLET_LEN / slatCount - slatGap;
+  const slatGeo = new THREE.BoxGeometry(slatW, slatT, PALLET_WID);
+  for (let i = 0; i < slatCount; i++) {
+    const slat = new THREE.Mesh(slatGeo, slatMat);
+    slat.position.set(-PALLET_LEN / 2 + slatW / 2 + i * (PALLET_LEN / slatCount), stringerH + slatT / 2, 0);
+    slat.castShadow = true;
+    g.add(slat);
+  }
+  return g;
+}
+
 // ---------- Wood pile (depletes with state.wood, 09/26) ----------
 // Hex-prism logs (instanced, 2 draw calls) in a stacked pile that shows a share of its slots in
-// proportion to the wood left (top row empties first), a pallet with its own
-// logs once the pallet is earned, and kindling chips at zero. sync() is called
-// every frame from game.js and does nothing unless wood, capacity or earned changed.
-const PALLET_MAX_LOGS = 8;                        // matches POWERUPS.woodBonus
-const PALLET_SIZE = 0.8, PALLET_THICK = 0.05, PALLET_BLOCK_H = 0.06;
-const PALLET_TOP = PALLET_THICK + PALLET_BLOCK_H; // logs on the pallet rest here
+// proportion to the wood left (top row empties first), a small overflow heap once
+// wood is stocked past the pile's own capacity, and kindling chips at zero. sync()
+// is called every frame from game.js and does nothing unless wood or capacity
+// actually changed.
+//
+// Pallet redesign (09/27/2026): this overflow heap used to be gated on the pallet
+// powerup (a crate of slats on blocks, only shown once "earned") because the old
+// pallet mechanic just deposited wood directly with no physical prop. Now the
+// pallet is its own carryable prop (makePalletMesh, leaning against the cabin
+// until grabbed) that gets broken up *at* the wood pile for +6 wood, so having a
+// second, different-looking "pallet" sitting at the pile too would read as two
+// pallets in the scene. This overflow visual is keyed on wood > capacity alone
+// (the only way to get there is breaking the real pallet up here) and drawn as
+// loose logs, ground height, no crate, so it reads as "extra logs someone stacked
+// up" rather than a pallet.
+const OVERFLOW_MAX_LOGS = 6;   // matches POWERUPS.palletBreakWood: the only source of overflow
+const OVERFLOW_ROWS = [2, 1];
 
 // Solid six-sided logs with pale cut ends, the shape of the old Kenney stack.
 // (Kenney's single log_large is an open tube with no end caps, so it reads hollow.)
@@ -1528,8 +1591,7 @@ const LOG_R = 0.17, LOG_LEN = 0.9;
 const LOG_W = LOG_R * 2;                        // side-by-side pitch, corner to corner
 const LOG_RISE = LOG_R * Math.sqrt(3) * 0.86;   // row rise, nested into the gap below
 // Full-pile row shapes by starting wood (bigger pile = more wood): bottom row first.
-function pileRows(capacity) { return capacity >= 20 ? [4, 3, 2, 1] : capacity >= 15 ? [4, 3, 2] : [4, 3]; }
-const PALLET_ROWS = [2, 1];
+function pileRows(capacity) { return capacity >= 20 ? [4, 3, 2, 1] : capacity >= 16 ? [4, 3, 2] : [4, 3]; }
 
 // Slot positions for a stack with the given row shape, bottom row first. This order
 // is the depletion order: showing the first n slots empties the top row first.
@@ -1547,31 +1609,6 @@ function shownSlots(wood, capacity, slots) {
   return Math.max(1, Math.min(slots, Math.round((wood / capacity) * slots)));
 }
 
-// A low crate of slats on two support blocks: Johnny D's pallet, shown once the
-// wood powerup is earned (POWERUPS.woodHotSeconds of Hell's Anus), holding
-// whatever wood is currently above the main pile's capacity. Pale, weathered
-// grey-wood tones (deliberately NOT the bark/inner log colors) so it reads as
-// its own object next to the pile rather than disappearing into it or the
-// night; both a shade or two lighter than anything else at this spot so it
-// still reads against the fire-lit ground rather than the shadow it sits in.
-function buildPalletSlats() {
-  const g = new THREE.Group();
-  const slatMat = new THREE.MeshLambertMaterial({ color: "#b7ac95", flatShading: true });
-  const blockMat = new THREE.MeshLambertMaterial({ color: "#8d8371", flatShading: true });
-  const slatW = PALLET_SIZE / 4 - 0.015;
-  for (let i = 0; i < 4; i++) {
-    const slat = new THREE.Mesh(new THREE.BoxGeometry(slatW, PALLET_THICK, PALLET_SIZE), slatMat);
-    slat.position.set(-PALLET_SIZE / 2 + slatW / 2 + i * (PALLET_SIZE / 4), PALLET_BLOCK_H + PALLET_THICK / 2, 0);
-    slat.castShadow = true;
-    g.add(slat);
-  }
-  [-1, 1].forEach((s) => {
-    const block = new THREE.Mesh(new THREE.BoxGeometry(PALLET_SIZE * 0.92, PALLET_BLOCK_H, 0.1), blockMat);
-    block.position.set(0, PALLET_BLOCK_H / 2, s * (PALLET_SIZE / 2 - 0.05));
-    g.add(block);
-  });
-  return g;
-}
 // A few bark chips and kindling twigs left at the empty spot (built once, fixed
 // layout — this only ever toggles .visible, never rebuilds), so 0 wood reads as
 // "out" rather than a patch of bare ground. Kenney bark/inner tones (matching
@@ -1603,12 +1640,12 @@ function buildKindling() {
 }
 
 // Builds the whole wood-pile prop: the depleting log stack, the (initially
-// hidden) pallet with its own overflow logs, and the (initially hidden) empty-spot
-// kindling. Returns { group, sync }: game.js positions/rotates `group` like any
-// other station and calls sync(wood, capacity, earned) once a frame; sync no-ops
-// unless one of those three actually changed since the last call. The log
-// geometry loads asynchronously (once, cached); sync() before it's ready just
-// records the request and the load's .then() replays the latest one.
+// hidden) overflow heap for wood stocked past capacity, and the (initially
+// hidden) empty-spot kindling. Returns { group, sync }: game.js positions/rotates
+// `group` like any other station and calls sync(wood, capacity) once a frame;
+// sync no-ops unless wood or capacity actually changed since the last call. The
+// log geometry loads asynchronously (once, cached); sync() before it's ready
+// just records the request and the load's .then() replays the latest one.
 export function buildWoodPile(defaultCapacity) {
   const group = new THREE.Group();
   // One hex prism along X; cylinder groups are side, top, bottom -> bark, end, end.
@@ -1628,12 +1665,11 @@ export function buildWoodPile(defaultCapacity) {
   }
   const mainLogs = makeLogs(10, group);
 
-  const palletGroup = new THREE.Group();
-  palletGroup.position.set(1.3, 0, 0.05);
-  palletGroup.visible = false;
-  palletGroup.add(buildPalletSlats());
-  const palletLogs = makeLogs(3, palletGroup);
-  group.add(palletGroup);
+  const overflowGroup = new THREE.Group();
+  overflowGroup.position.set(1.3, 0, 0.05);
+  overflowGroup.visible = false;
+  const overflowLogs = makeLogs(3, overflowGroup);
+  group.add(overflowGroup);
 
   const kindling = buildKindling();
   kindling.visible = false;
@@ -1653,18 +1689,19 @@ export function buildWoodPile(defaultCapacity) {
     mesh.instanceMatrix.needsUpdate = true;
     mesh.computeBoundingSphere();
   }
-  let lastWood = null, lastCapacity = null, lastEarned = null;
-  function sync(wood, capacity, earned) {
-    if (wood === lastWood && capacity === lastCapacity && earned === lastEarned) return;
-    lastWood = wood; lastCapacity = capacity; lastEarned = earned;
+  let lastWood = null, lastCapacity = null;
+  function sync(wood, capacity) {
+    if (wood === lastWood && capacity === lastCapacity) return;
+    lastWood = wood; lastCapacity = capacity;
     const main = rowSlots(pileRows(capacity), 0);
     place(mainLogs, main, shownSlots(Math.min(wood, capacity), capacity, main.length));
-    palletGroup.visible = !!earned;
-    const pal = rowSlots(PALLET_ROWS, PALLET_TOP);
-    place(palletLogs, pal, shownSlots(Math.max(0, Math.min(wood - capacity, PALLET_MAX_LOGS)), PALLET_MAX_LOGS, pal.length));
+    const overflow = Math.max(0, Math.min(wood - capacity, OVERFLOW_MAX_LOGS));
+    overflowGroup.visible = overflow > 0;
+    const pile = rowSlots(OVERFLOW_ROWS, 0);
+    place(overflowLogs, pile, shownSlots(overflow, OVERFLOW_MAX_LOGS, pile.length));
     kindling.visible = wood <= 0;
   }
-  sync(defaultCapacity, defaultCapacity, false);
+  sync(defaultCapacity, defaultCapacity);
   return { group, sync };
 }
 
