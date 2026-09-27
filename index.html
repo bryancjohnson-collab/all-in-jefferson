@@ -6,10 +6,10 @@
   <title>All In Jefferson</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Luckiest+Guy&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=147">
+  <link rel="stylesheet" href="styles.css?v=149">
   <link rel="manifest" href="manifest.webmanifest">
-  <link rel="icon" href="assets/icon-180.png?v=147">
-  <link rel="apple-touch-icon" href="assets/icon-180.png?v=147">
+  <link rel="icon" href="assets/icon-180.png?v=149">
+  <link rel="apple-touch-icon" href="assets/icon-180.png?v=149">
   <meta name="theme-color" content="#0b1020">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -73,9 +73,14 @@
   <div id="fps-counter" class="fps-counter" hidden></div>
 
   <div id="portrait-overlay" class="portrait-overlay" hidden>
+    <img class="portrait-logo" src="assets/logo.png" alt="All In Jefferson">
     <div class="rotate-icon">&#8635;</div>
     <div class="portrait-text">Turn your phone sideways to tend the fire</div>
-    <div class="portrait-a2hs">Play it like an app: iPhone: tap Share, then Add to Home Screen. Android: tap the menu, then Add to Home screen or Install app.</div>
+    <div class="portrait-a2hs">
+      <div class="a2hs-head">Play it like an app</div>
+      <div class="a2hs-row"><b>iPhone</b>Tap Share, then Add to Home Screen.</div>
+      <div class="a2hs-row"><b>Android</b>Tap the menu, then Add to Home screen or Install app.</div>
+    </div>
   </div>
 
   <div id="pause-overlay" class="pause-overlay" hidden>
@@ -157,6 +162,6 @@
     </div>
   </div>
 
-  <script type="module" src="src/game.js?v=147"></script>
+  <script type="module" src="src/game.js?v=149"></script>
 </body>
 </html>
