@@ -10,7 +10,10 @@ const loader = new GLTFLoader();
 const templates = new Map();   // name -> loaded template Object3D, reused for every clone
 const pending = new Map();     // name -> in-flight load promise
 
-function loadTemplate(name) {
+// Exported (in addition to spawnModel below) so world.js's wood pile can pull the
+// raw log_large template apart into per-material geometries and merge many
+// instances into one draw call per material, instead of one clone per log.
+export function loadTemplate(name) {
   if (templates.has(name)) return Promise.resolve(templates.get(name));
   if (pending.has(name)) return pending.get(name);
   const p = new Promise((resolve, reject) => {

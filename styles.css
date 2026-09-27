@@ -213,7 +213,12 @@ body.touch .pause-btn {
   color: #f3e9d2; cursor: pointer; pointer-events: auto;
   margin-left: env(safe-area-inset-left);
 }
-body.touch .hud-top { top: env(safe-area-inset-top); align-items: center; }
+/* flex-start, not center: .clock-panel is now taller than .pause-btn (the
+   wood/gas row grew it), and centering the row on its tallest child would
+   float the pause button down and misalign .meter-panel (anchored under the
+   pause button's own top edge below) against it -- top-aligning keeps both
+   corners' tops level with each other regardless of either panel's height. */
+body.touch .hud-top { top: env(safe-area-inset-top); align-items: flex-start; }
 body.touch .hud-top { padding-right: max(14px, env(safe-area-inset-right)); }
 body.touch .title-panel { display: none; }
 /* Fire meter moves off the top strip entirely (Bryan 09/26: it clipped camper
@@ -223,31 +228,58 @@ body.touch .title-panel { display: none; }
    clock chip now share it alone. The DOM and the JS that drives the meter
    (#fire-fill's width%, #fire-label's text, the .hot/.low fill classes, the
    .hot-line marker) are untouched -- this is the same bar, just moved and
-   rotated on-screen, so hot/low colors and the Hell's Anus tier text still
-   come from the exact same logic as the desktop horizontal meter. */
+   rotated on-screen, so hot/low colors and the hot glow still come from the
+   exact same logic as the desktop horizontal meter (the Hell's Anus tier NAME
+   itself no longer shows here -- see the isTouch check on ui.fireLabel in
+   game.js -- since Bryan 09/26 found the two-line "FIRE: HELL'S ANUS III:
+   RING OF FIRE" label too wide for this rail; the banner and the ticker/
+   speech-strip line still announce every tier by name).
+   Slimmed again same day: container width now matches the pause button
+   (~38px, "no wider than") directly beneath it, rather than the earlier
+   74px-wide box, and the bar is a straight percentage of viewport height
+   (42dvh, inside the 40-50% Bryan approved) instead of a fixed 150px, so it
+   scales with the device instead of being tuned to one viewport. Both numbers
+   are re-verified in game.js's actionCornerBoxes/measureHudFootprint against
+   the action button's real footprint when controls are swapped (see the
+   swap-controls comment down by .action-btn). */
 body.touch .hud-top > .meter-panel {
   position: fixed;
-  left: max(4px, env(safe-area-inset-left));
-  top: calc(env(safe-area-inset-top) + 56px);
-  width: 74px;
-  height: 202px;
+  left: calc(14px + env(safe-area-inset-left));  /* same left edge as .pause-btn: 14px is .hud-top's own padding, its margin-left adds env() on top of that */
+  top: calc(env(safe-area-inset-top) + 58px);     /* pause button (38px tall, starting 14px down) plus a 6px gap */
+  width: 38px;
+  height: calc(42dvh + 16px);
   padding: 0;
   pointer-events: none;   /* never steal a stick touch landing near the edge */
   z-index: 2;
 }
 body.touch .meter-panel .label {
-  position: absolute; top: 0; left: 0; right: 0;
-  font-size: 9px; letter-spacing: 0.06em; line-height: 1.2; text-align: center;
+  position: absolute; top: 1px; left: 0; right: 0;
+  font-size: 8px; letter-spacing: 0.04em; line-height: 1.2; text-align: center;
 }
 body.touch .meter-panel .meter {
-  position: absolute; left: 50%; top: 122px;
-  width: 150px; height: 16px; margin: -8px 0 0 -75px;
+  position: absolute; left: 50%; top: calc(16px + 21dvh);
+  width: 42dvh; height: 24px; margin: -12px 0 0 -21dvh;
   border-radius: 8px;
   transform: rotate(-90deg);   /* 0% (empty) at the bottom, 100% (max) at the top */
 }
-body.touch .clock-panel { height: 38px; padding: 3px 10px; min-width: 0; margin-right: env(safe-area-inset-right); }
+/* ---------- Top-right corner: one card, clock over a WOOD/GAS row ----------
+   Bryan 09/26: the wood/gas counters used to float top-left under the pause
+   button; moved into the same card as the clock so the top-right corner is
+   ONE box instead of two, and margin-left:auto (title-panel, the desktop
+   logo slot that used to push this right, is display:none on touch) is what
+   actually pins it to the right now that it's the only visible flex sibling
+   after the pause button. */
+body.touch .clock-panel {
+  height: auto; padding: 4px 10px 6px; min-width: 0;
+  margin-left: auto; margin-right: env(safe-area-inset-right);
+}
 body.touch .clock { font-size: 16px; }
 body.touch .sub { font-size: 8px; }
+.touch-stats { display: none; }
+body.touch .clock-panel .touch-stats {
+  display: flex; flex-direction: row; justify-content: flex-end; gap: 6px;
+  margin-top: 3px; pointer-events: none;
+}
 
 /* ---------- Ticker: floating line, no box ---------- */
 body.touch .hud-bottom .panel:has(#wood-count),
@@ -262,8 +294,8 @@ body.touch #music-chip {
    where it keeps showing as the normal boxed ticker panel it always was. */
 body.touch #message { display: none; }
 
-/* ---------- Bottom controls: floating stick, action button, WOOD/GAS chips ---------- */
-.stick-zone, .touch-stats, .action-btn { display: none; }
+/* ---------- Bottom controls: floating stick, action button ---------- */
+.stick-zone, .action-btn { display: none; }
 body.touch .stick-zone {
   display: block; position: absolute;
   left: 0; top: 70px; bottom: 0; width: 55%;
@@ -293,21 +325,15 @@ body.touch .action-btn {
 }
 body.touch .action-btn.idle { opacity: 0.4; }
 body.touch.swap-controls .action-btn { right: auto; left: max(26px, env(safe-area-inset-left)); }
-body.touch .touch-stats {
-  /* Top-left under the pause button, out of the play area (the bottom corner
-     hid the poker and wood pile). Shifted right of the vertical fire meter's
-     column (that bar now runs left:4px to ~78px) so the two never overlap. */
-  display: flex; flex-direction: row; gap: 6px;
-  position: absolute; left: max(88px, calc(env(safe-area-inset-left) + 88px));
-  top: calc(env(safe-area-inset-top) + 58px);
-  z-index: 3; pointer-events: none;
-}
+/* WOOD/GAS chips: nested inside .clock-panel now (see the top-right card rule
+   above, near .meter-panel), one row under the clock, not a separate floating
+   pair -- their own .t-chip sizing shrinks to match ("small", Bryan 09/26). */
 .t-chip {
-  background: rgba(12,16,30,0.62); border: 1.5px solid rgba(243,233,210,0.6);
-  border-radius: 9px; padding: 4px 10px; font: 700 13px "Trebuchet MS", sans-serif;
+  background: rgba(12,16,30,0.55); border: 1.5px solid rgba(243,233,210,0.5);
+  border-radius: 7px; padding: 2px 7px; font: 700 11px "Trebuchet MS", sans-serif;
   white-space: nowrap; color: #f3e9d2;
 }
-.t-chip i { font-style: normal; font-size: 9px; letter-spacing: 1.2px; opacity: 0.8; margin-right: 6px; }
+.t-chip i { font-style: normal; font-size: 8px; letter-spacing: 1px; opacity: 0.8; margin-right: 4px; }
 
 /* Bubbles and banners on phones (Bryan, 09/26: "bubbles cover everything", then
    "could the speech bubble always be at the top, away from the gameplay?"). On
@@ -320,17 +346,26 @@ body.touch .banner.show { animation-duration: 1.7s; }
 
 /* ---------- Speech strip (touch only): camper/ticker lines stacked under the
    top HUD strip, newest on top, at most two rows. Desktop keeps the floating
-   .bubble elements above (unchanged) and never touches this. ---------- */
+   .bubble elements above (unchanged) and never touches this.
+   left/right here are a static fallback only (roughly clears a 38px rail plus
+   a card the width of "9:00 PM"/wood-gas row) for the instant before the game
+   loop's first frame; game.js's updatePhoneSpeechBounds() overwrites both as
+   an inline style every frame from the rail/card's REAL measured
+   getBoundingClientRect(), so the strip always tracks their actual on-screen
+   width (a longer WOOD/GAS count, a locale with a wider clock string, etc.)
+   instead of two numbers guessed once and left to drift. Top is a small fixed
+   offset because horizontal clearance from the rail/card is what keeps this
+   off both of them now -- it no longer needs to duck below the fire meter's
+   own height (that's a left-edge-only rail, not a full-width strip anymore). */
 .speech-strip { display: none; }
 body.touch .speech-strip {
   display: flex; flex-direction: column; gap: 4px;
-  position: fixed; left: 0; right: 0; top: calc(46px + env(safe-area-inset-top));
-  padding: 0 max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-area-inset-left));
+  position: fixed; left: 60px; right: 150px; top: calc(env(safe-area-inset-top) + 8px);
   align-items: center; z-index: 2; pointer-events: none;
 }
 .speech-line {
   font: 700 13px "Trebuchet MS", sans-serif; letter-spacing: 0.01em;
-  color: #f3e9d2; text-align: center; max-width: 92vw;
+  color: #f3e9d2; text-align: center; max-width: 100%;
   text-shadow: 0 1px 3px #000, 0 0 8px #000;
   background: rgba(10,14,26,0.4); border-radius: 8px; padding: 3px 10px;
   opacity: 0; transform: translateY(-4px);
@@ -450,8 +485,9 @@ body.touch .lobby-card { left: max(12vw, env(safe-area-inset-left)); }
   body.touch .lobby-name { font-size: 30px; }
   body.touch .lobby-quote { font-size: 12px; max-width: 260px; }
   body.touch .lobby-card { top: 46%; left: 8vw; max-width: 40vw; }
-  body.touch .lobby-bottom { bottom: max(2px, env(safe-area-inset-bottom)); display: flex; align-items: center; justify-content: center; gap: 10px; }
-  body.touch .lobby-bottom .title-start { font-size: 11px; padding: 5px 10px; margin: 0; white-space: nowrap; }
+  body.touch .lobby-bottom { bottom: max(2px, env(safe-area-inset-bottom)); display: flex; align-items: stretch; justify-content: center; gap: 10px; }
+  /* Bryan 09/26: START stretches to the same height as the two panels beside it. */
+  body.touch .lobby-bottom .title-start { font-size: 11px; padding: 5px 10px; margin: 0; white-space: nowrap; display: flex; align-items: center; justify-content: center; border-radius: 12px; }
   body.touch .lobby-top { top: 2px; }
   body.touch .lobby-logo { height: 46px; }
   body.touch .lobby-heading { font-size: 16px; margin-top: 0; }

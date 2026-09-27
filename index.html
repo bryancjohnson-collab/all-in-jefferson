@@ -6,7 +6,7 @@
   <title>All In Jefferson</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Luckiest+Guy&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=125">
+  <link rel="stylesheet" href="styles.css?v=128">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="assets/icon-180.png">
   <link rel="apple-touch-icon" href="assets/icon-180.png">
@@ -28,14 +28,18 @@
   <div id="hud" hidden>
     <div class="hud-top">
       <button id="pause-btn" class="panel pause-btn" type="button" aria-label="Pause">II</button>
-      <div class="panel meter-panel">
+      <div id="meter-panel" class="panel meter-panel">
         <div id="fire-label" class="label">FIRE</div>
         <div class="meter"><div id="fire-fill" class="fill"></div><div class="hot-line"></div></div>
       </div>
       <div class="panel title-panel"><img class="hud-logo" src="assets/logo.png" alt="All In Jefferson"></div>
-      <div class="panel clock-panel">
+      <div id="clock-panel" class="panel clock-panel">
         <div id="clock" class="clock">9:00 PM</div>
         <div class="sub">DAWN AT 5:30</div>
+        <div id="touch-stats" class="touch-stats">
+          <div class="t-chip"><i>WOOD</i><span id="t-wood">0</span></div>
+          <div class="t-chip"><i>GAS</i><span id="t-gas">0</span></div>
+        </div>
       </div>
     </div>
     <div class="hud-bottom">
@@ -52,10 +56,6 @@
 
     <div id="stick-zone" class="stick-zone">
       <div id="stick" class="stick" hidden><div class="stick-knob"></div></div>
-    </div>
-    <div id="touch-stats" class="touch-stats">
-      <div class="t-chip"><i>WOOD</i><span id="t-wood">0</span></div>
-      <div class="t-chip"><i>GAS</i><span id="t-gas">0</span></div>
     </div>
     <button id="action-btn" class="action-btn" type="button"></button>
   </div>
@@ -156,6 +156,6 @@
     </div>
   </div>
 
-  <script type="module" src="src/game.js?v=125"></script>
+  <script type="module" src="src/game.js?v=128"></script>
 </body>
 </html>

@@ -1,16 +1,16 @@
 // All In Jefferson, prototype 1: the fire loop on a flat plane with box campers.
 import * as THREE from "three";
-import { NIGHT_SECONDS, NIGHT_START_MIN, NIGHT_END_MIN, MIDNIGHT_MIN, FIRE, WIND, CAMPER, BEAR, PLAYER, LAYOUT, POWERUPS, EVENTS, HOT_LEVELS, SMOKE, DIFFICULTY, HINTS, PHONE_FOLLOW, KEG, HEAT, HEADLAMP } from "./config.js?v=125";
-import { initSound, coyoteYip, whoosh, growl, bang, startCrackle, setCrackle, footstep, logLand, pokeSound, buzz, playIntroThenLoop, startLoop, stopMusic, playDawn, toggleMusic, musicEnabled, musicActive, bearTheme, bearRideTheme, bearWomp, duckMusic, hissSteam } from "./sound.js?v=125";
-import { campers as roster, pickPlayer, commitPick, snacks, emotes, comments, coolerComments, kegCheers, kegFireYell } from "./campers.js?v=125";
-import { buildWorld, makeCamperMesh, makeChairMesh, makeLogMesh, setSeated, stepWalkCycle, stepBearWalk, SEATED_DROP } from "./world.js?v=125";
-import { buildMiniKeg } from "./props.js?v=125";
-import { updateFireVisuals } from "./fire.js?v=125";
-import { initShareCardButtons } from "./sharecard.js?v=125";
+import { NIGHT_SECONDS, NIGHT_START_MIN, NIGHT_END_MIN, MIDNIGHT_MIN, FIRE, WIND, CAMPER, BEAR, PLAYER, LAYOUT, POWERUPS, EVENTS, HOT_LEVELS, SMOKE, DIFFICULTY, HINTS, PHONE_FOLLOW, KEG, HEAT, HEADLAMP } from "./config.js?v=128";
+import { initSound, coyoteYip, whoosh, growl, bang, startCrackle, setCrackle, footstep, logLand, pokeSound, buzz, playIntroThenLoop, startLoop, stopMusic, playDawn, toggleMusic, musicEnabled, musicActive, bearTheme, bearRideTheme, bearWomp, duckMusic, hissSteam } from "./sound.js?v=128";
+import { campers as roster, pickPlayer, commitPick, snacks, emotes, comments, coolerComments, kegCheers, kegFireYell } from "./campers.js?v=128";
+import { buildWorld, makeCamperMesh, makeChairMesh, makeLogMesh, setSeated, stepWalkCycle, stepBearWalk, SEATED_DROP } from "./world.js?v=128";
+import { buildMiniKeg } from "./props.js?v=128";
+import { updateFireVisuals } from "./fire.js?v=128";
+import { initShareCardButtons } from "./sharecard.js?v=128";
 
 const canvas = document.getElementById("scene");
 const world = buildWorld(canvas);
-const { renderer, scene, camera, fireLight, keyLight, flames, sparks, coals, bear: bearMesh, streaks, don: donMesh, alan: alanMesh, bees: beesMesh, breath: breathMesh, pitLogs, hintArrow, snackToken, stick: stickMesh, star: starMesh, starlink: starlinkMesh, trees, smoke } = world;
+const { renderer, scene, camera, fireLight, keyLight, flames, sparks, coals, bear: bearMesh, streaks, don: donMesh, alan: alanMesh, bees: beesMesh, breath: breathMesh, gasCan, pitLogs, hintArrow, snackToken, stick: stickMesh, star: starMesh, starlink: starlinkMesh, trees, smoke, woodPile } = world;
 // Bundle for the single fire.js visual hook driven from render(): flame sprites,
 // sparks, the coal bed and the pit logs, all purely cosmetic and keyed off
 // state.fire's authoritative level/hot/hotTier.
@@ -72,6 +72,13 @@ scene.add(heatBarBack, heatBarFill);
 const ui = {
   fireFill: document.getElementById("fire-fill"),
   fireLabel: document.getElementById("fire-label"),
+  // meterPanel/clockPanel: the phone left-rail and top-right card themselves
+  // (docs/PHONE.md), read every touch frame in measureHudFootprint() below
+  // for their real on-screen box -- never hardcoded, so a CSS tweak to either
+  // one is picked up automatically by both the speech strip's width and the
+  // camera follow's safe area.
+  meterPanel: document.getElementById("meter-panel"),
+  clockPanel: document.getElementById("clock-panel"),
   musicChip: document.getElementById("music-chip"),
   bottle: document.getElementById("bottle-chip"),
   banner: document.getElementById("banner"),
@@ -607,6 +614,7 @@ function startNight() {
   if (state.phase !== "select") return;
   const d = DIFFICULTY[state.diff];
   state.wood = d.wood; state.gas = d.gas; state.burn = d.burn;
+  syncWoodPile();
   ui.select.hidden = true;
   startCrackle();
   startLoop();
@@ -681,13 +689,33 @@ function projectToScreenPx(x, z, y = 0) {
 // Both get buttonMarginPx of extra clearance in neededScreenCorrection below,
 // not baked in here, so this stays the button's true rect. Recomputed each
 // frame since it's just one getBoundingClientRect() call.
+// The phone HUD's two fixed corner panels -- the left rail (pause button +
+// fire meter) and the top-right card (clock + wood/gas) -- as their REAL,
+// currently-rendered boxes (docs/PHONE.md's approved layout). Read straight
+// off getBoundingClientRect() rather than duplicating styles.css's numbers
+// here, so a CSS change to either panel (a longer wood/gas count reflowing
+// the card, a safe-area inset change, etc.) is picked up automatically by
+// both this and updatePhoneSpeechBounds() below, from one measurement.
+// Neither panel moves for the controls-side swap, so there is only one
+// version of each, unlike the button/stick boxes below.
+function measureHudFootprint() {
+  const w = window.innerWidth;
+  const p = ui.pauseBtn.getBoundingClientRect();
+  const m = ui.meterPanel.getBoundingClientRect();
+  const c = ui.clockPanel.getBoundingClientRect();
+  return {
+    rail: { left: 0, right: Math.max(p.right, m.right), top: 0, bottom: Math.max(p.bottom, m.bottom) },
+    card: { left: c.left, right: w, top: 0, bottom: c.bottom },
+  };
+}
 function actionCornerBoxes() {
   const w = window.innerWidth, h = window.innerHeight;
   const r = ui.actionBtn.getBoundingClientRect();
   const onRight = r.left > w / 2;
   const btnBox = onRight ? { left: r.left, right: w, top: r.top, bottom: h } : { left: 0, right: r.right, top: r.top, bottom: h };
   const stickBox = onRight ? { left: 0, right: r.width, top: r.top, bottom: h } : { left: w - r.width, right: w, top: r.top, bottom: h };
-  return { btnBox, stickBox, topSafe: PHONE_FOLLOW.topSafePx };
+  const { rail, card } = measureHudFootprint();
+  return { btnBox, stickBox, railBox: rail, cardBox: card, topSafe: PHONE_FOLLOW.topSafePx };
 }
 // How far (in screen px, signed) a point needs to move to get back onto screen
 // with real breathing room — edgePx from every side, clear of the top strip,
@@ -730,6 +758,19 @@ function neededScreenCorrection(x, y, boxes, skipBottom) {
     const onLeftEdge = box.left === 0;
     const pushX = onLeftEdge ? (right + 4 - x) : (left - 4 - x);
     consider(pushX, 0);
+  }
+  // The left rail and the top-right card (boxes.railBox/cardBox, from
+  // measureHudFootprint in actionCornerBoxes above) are anchored to the TOP
+  // of the screen and open downward -- the opposite of the button/stick boxes
+  // just above, which are anchored to the bottom and open upward. A point
+  // caught inside one of these escapes by moving straight down, clear of its
+  // bottom edge, rather than sideways: unlike the bottom corners, there is no
+  // "toward center" direction that's short for a box hugging the top edge.
+  for (const box of [boxes.railBox, boxes.cardBox]) {
+    if (!box) continue;
+    const left = box.left - bm, right = box.right + bm, bottom = box.bottom + bm;
+    if (x <= left || x >= right || y >= bottom) continue;
+    consider(0, bottom + 4 - y);
   }
   return { dx, dy };
 }
@@ -1020,8 +1061,17 @@ canvas.addEventListener("webglcontextrestored", () => {
   renderer.resetState();
 });
 
+// Wood pile visual: depletes/restocks with state.wood. sync() no-ops unless
+// wood, the difficulty's starting pile size, or the pallet powerup actually
+// changed since the last call, so calling it every frame costs nothing once
+// the pile matches state.
+function syncWoodPile() {
+  woodPile.sync(state.wood, DIFFICULTY[state.diff].wood, state.powerups.woodEarned);
+}
+
 function update(dt) {
   state.t += dt;
+  syncWoodPile();
   updatePlayer(dt);
   updateFire(dt);
   updateHeat(dt);
@@ -1126,7 +1176,8 @@ function updatePlayer(dt) {
   const distWood = dist2(player.pos, LAYOUT.woodPile);
   const nearFire = player.pos.length() < PLAYER.minRadius + reach;
   const nearWood = distWood < reach;
-  const nearGas = dist2(player.pos, LAYOUT.gasCan) < reach;
+  // Bryan 09/26: the can disappears once the gas is gone, so there is nothing to walk to.
+  const nearGas = state.gas > 0 && dist2(player.pos, LAYOUT.gasCan) < reach;
   // The poker's generous radius reaches all the way to the wood pile it leans
   // against, so it only wins there when it is genuinely the nearer of the two —
   // otherwise standing at the pile would show GRAB GANDALF instead of GRAB WOOD.
@@ -1644,7 +1695,7 @@ function attemptTapToGo(clientX, clientY) {
 
   const candidates = [
     { pos: LAYOUT.woodPile, r: TAP_HIT_RADIUS.woodPile },
-    { pos: LAYOUT.gasCan, r: TAP_HIT_RADIUS.gasCan },
+    { pos: LAYOUT.gasCan, r: TAP_HIT_RADIUS.gasCan, active: state.gas > 0 },
     { pos: LAYOUT.cooler, r: TAP_HIT_RADIUS.cooler },
     { pos: LAYOUT.stick, r: TAP_HIT_RADIUS.stick, active: !state.stick.held },
     { pos: donMesh.position, r: TAP_HIT_RADIUS.don, active: donMesh.visible && !player.carrying },
@@ -2281,10 +2332,16 @@ function render(dt) {
   ui.fireFill.style.width = `${(state.fire.level / FIRE.max) * 100}%`;
   ui.fireFill.classList.toggle("low", level < 0.25);
   ui.fireFill.classList.toggle("hot", hot);
-  ui.fireLabel.textContent = hot ? `FIRE: ${HOT_LEVELS[tier - 1].name}` : "FIRE";
+  // On phones the meter label is always just "FIRE" (Bryan 09/26: the tier
+  // name made the two-line "FIRE: HELL'S ANUS III: RING OF FIRE" label wider
+  // than the slim rail it now sits in); the banner (showBanner above) and the
+  // ticker/speech-strip line (say(), same tier-change block) still announce
+  // every tier by name on every device, touch included.
+  ui.fireLabel.textContent = (hot && !isTouch) ? `FIRE: ${HOT_LEVELS[tier - 1].name}` : "FIRE";
   ui.clock.textContent = clockText();
   ui.wood.textContent = state.wood;
   ui.gas.textContent = state.gas;
+  gasCan.visible = state.gas > 0;
   ui.tWood.textContent = state.wood;
   ui.tGas.textContent = state.gas;
   if (state.message.until < state.t && !state.message.hint) ui.message.textContent = "";
@@ -2327,6 +2384,7 @@ function render(dt) {
   const w = window.innerWidth, h = window.innerHeight;
   const bubbleActors = [...campers, player, state.don, state.alan];
   if (isTouch) {
+    updatePhoneSpeechBounds();
     updateTouchSpeech(bubbleActors);
   } else {
     bubbleActors.forEach((c) => {
@@ -2480,6 +2538,17 @@ function resetTouchSpeech() {
   speechTickerLastText = "";
   if (ui.speechMarker0) ui.speechMarker0.hidden = true;
   if (ui.speechMarker1) ui.speechMarker1.hidden = true;
+}
+// Keeps the speech strip's own width clear of the left rail and the
+// top-right card (measureHudFootprint, up by actionCornerBoxes) by setting
+// its left/right as an inline style every touch frame -- inline style always
+// wins over the styles.css fallback, so this is the actual answer, not just
+// a first-paint placeholder. See the .speech-strip comment in styles.css.
+function updatePhoneSpeechBounds() {
+  const { rail, card } = measureHudFootprint();
+  const gap = 10;
+  ui.speechStrip.style.left = `${Math.round(rail.right + gap)}px`;
+  ui.speechStrip.style.right = `${Math.round(window.innerWidth - card.left + gap)}px`;
 }
 function updateTouchSpeech(actors) {
   // 1. Detect new lines. bubble.until only changes when bubble()/pbubble() is

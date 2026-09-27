@@ -4,10 +4,10 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
-import { LAYOUT } from "./config.js?v=125";
-import { spawnModel, lerpColor, mulberry32, buildCabin, buildCooler, buildGasCan, buildCampChair, buildPokerStick } from "./props.js?v=125";
-import { buildTravelTrailer } from "./trailer.js?v=125";
-import { buildFire } from "./fire.js?v=125";
+import { LAYOUT, FIRE } from "./config.js?v=128";
+import { spawnModel, lerpColor, mulberry32, buildCabin, buildCooler, buildGasCan, buildCampChair, buildPokerStick } from "./props.js?v=128";
+import { buildTravelTrailer } from "./trailer.js?v=128";
+import { buildFire } from "./fire.js?v=128";
 
 export function buildWorld(canvas) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -85,15 +85,14 @@ export function buildWorld(canvas) {
   const embers = coals;
 
   // Stations
-  const woodPile = new THREE.Group();
-  woodPile.position.set(LAYOUT.woodPile.x, 0, LAYOUT.woodPile.z);
-  woodPile.rotation.y = 0.2;
-  scene.add(woodPile);
-  spawnModel("log_stackLarge", woodPile, {
-    scale: new THREE.Vector3(1.3 / 0.63, 0.7 / 0.35, 1.14),
-    colorMap: { woodBark: "#7a4c22", woodDark: "#5b3a1e", woodInner: "#c9a27a" },
-    castShadow: true,
-  });
+  // Wood pile: individual logs (buildWoodPile below) so it can visibly deplete as
+  // state.wood runs down. Built at FIRE.woodPile (NORMAL's starting count) as a
+  // harmless default before the first real sync() call (from game.js's update loop)
+  // resizes it to the chosen difficulty's starting pile.
+  const woodPile = buildWoodPile(FIRE.woodPile);
+  woodPile.group.position.set(LAYOUT.woodPile.x, 0, LAYOUT.woodPile.z);
+  woodPile.group.rotation.y = 0.2;
+  scene.add(woodPile.group);
 
   const gasCan = buildGasCan();
   gasCan.position.set(LAYOUT.gasCan.x, 0, LAYOUT.gasCan.z);
@@ -1178,6 +1177,161 @@ export function makeLogMesh() {
   const m = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.8, 7), new THREE.MeshLambertMaterial({ color: "#8a5a2b" }));
   m.rotation.z = Math.PI / 2;
   return m;
+}
+
+// ---------- Wood pile (depletes with state.wood, 09/26) ----------
+// Hex-prism logs (instanced, 2 draw calls) in a stacked pile that shows a share of its slots in
+// proportion to the wood left (top row empties first), a pallet with its own
+// logs once the pallet is earned, and kindling chips at zero. sync() is called
+// every frame from game.js and does nothing unless wood, capacity or earned changed.
+const PALLET_MAX_LOGS = 8;                        // matches POWERUPS.woodBonus
+const PALLET_SIZE = 0.8, PALLET_THICK = 0.05, PALLET_BLOCK_H = 0.06;
+const PALLET_TOP = PALLET_THICK + PALLET_BLOCK_H; // logs on the pallet rest here
+
+// Solid six-sided logs with pale cut ends, the shape of the old Kenney stack.
+// (Kenney's single log_large is an open tube with no end caps, so it reads hollow.)
+const LOG_R = 0.17, LOG_LEN = 0.9;
+const LOG_W = LOG_R * 2;                        // side-by-side pitch, corner to corner
+const LOG_RISE = LOG_R * Math.sqrt(3) * 0.86;   // row rise, nested into the gap below
+// Full-pile row shapes by starting wood (bigger pile = more wood): bottom row first.
+function pileRows(capacity) { return capacity >= 20 ? [4, 3, 2, 1] : capacity >= 15 ? [4, 3, 2] : [4, 3]; }
+const PALLET_ROWS = [2, 1];
+
+// Slot positions for a stack with the given row shape, bottom row first. This order
+// is the depletion order: showing the first n slots empties the top row first.
+function rowSlots(rows, yBase) {
+  const out = [];
+  rows.forEach((count, r) => {
+    const y = yBase + r * LOG_RISE;
+    for (let j = 0; j < count; j++) out.push({ y, z: (j - (count - 1) / 2) * LOG_W });
+  });
+  return out;
+}
+// How many slots to show for `wood` out of `capacity`: any wood at all shows a log.
+function shownSlots(wood, capacity, slots) {
+  if (wood <= 0) return 0;
+  return Math.max(1, Math.min(slots, Math.round((wood / capacity) * slots)));
+}
+
+// A low crate of slats on two support blocks: Johnny D's pallet, shown once the
+// wood powerup is earned (POWERUPS.woodHotSeconds of Hell's Anus), holding
+// whatever wood is currently above the main pile's capacity. Pale, weathered
+// grey-wood tones (deliberately NOT the bark/inner log colors) so it reads as
+// its own object next to the pile rather than disappearing into it or the
+// night; both a shade or two lighter than anything else at this spot so it
+// still reads against the fire-lit ground rather than the shadow it sits in.
+function buildPalletSlats() {
+  const g = new THREE.Group();
+  const slatMat = new THREE.MeshLambertMaterial({ color: "#b7ac95", flatShading: true });
+  const blockMat = new THREE.MeshLambertMaterial({ color: "#8d8371", flatShading: true });
+  const slatW = PALLET_SIZE / 4 - 0.015;
+  for (let i = 0; i < 4; i++) {
+    const slat = new THREE.Mesh(new THREE.BoxGeometry(slatW, PALLET_THICK, PALLET_SIZE), slatMat);
+    slat.position.set(-PALLET_SIZE / 2 + slatW / 2 + i * (PALLET_SIZE / 4), PALLET_BLOCK_H + PALLET_THICK / 2, 0);
+    slat.castShadow = true;
+    g.add(slat);
+  }
+  [-1, 1].forEach((s) => {
+    const block = new THREE.Mesh(new THREE.BoxGeometry(PALLET_SIZE * 0.92, PALLET_BLOCK_H, 0.1), blockMat);
+    block.position.set(0, PALLET_BLOCK_H / 2, s * (PALLET_SIZE / 2 - 0.05));
+    g.add(block);
+  });
+  return g;
+}
+// A few bark chips and kindling twigs left at the empty spot (built once, fixed
+// layout — this only ever toggles .visible, never rebuilds), so 0 wood reads as
+// "out" rather than a patch of bare ground. Kenney bark/inner tones (matching
+// the pile), sized up from the first pass so they still read at gameplay
+// camera distance instead of vanishing into the dirt.
+function buildKindling() {
+  const g = new THREE.Group();
+  const chipMat = new THREE.MeshLambertMaterial({ color: "#7a4c22", flatShading: true });
+  const chipInnerMat = new THREE.MeshLambertMaterial({ color: "#c9a27a", flatShading: true });
+  const chipGeo = new THREE.BoxGeometry(0.22, 0.035, 0.15);
+  for (let i = 0; i < 5; i++) {
+    const chip = new THREE.Mesh(chipGeo, i % 2 ? chipInnerMat : chipMat);
+    const a = (i / 5) * Math.PI * 2;
+    chip.position.set(Math.cos(a) * 0.34, 0.02, Math.sin(a) * 0.3);
+    chip.rotation.y = a * 1.7;
+    chip.castShadow = true;
+    g.add(chip);
+  }
+  const twigGeo = new THREE.CylinderGeometry(0.026, 0.034, 0.6, 6);
+  [[-0.14, 0.08, 0.4], [0.2, -0.16, -0.5]].forEach(([x, z, ry]) => {
+    const twig = new THREE.Mesh(twigGeo, chipMat);
+    twig.rotation.z = Math.PI / 2;
+    twig.rotation.y = ry;
+    twig.position.set(x, 0.03, z);
+    twig.castShadow = true;
+    g.add(twig);
+  });
+  return g;
+}
+
+// Builds the whole wood-pile prop: the depleting log stack, the (initially
+// hidden) pallet with its own overflow logs, and the (initially hidden) empty-spot
+// kindling. Returns { group, sync }: game.js positions/rotates `group` like any
+// other station and calls sync(wood, capacity, earned) once a frame; sync no-ops
+// unless one of those three actually changed since the last call. The log
+// geometry loads asynchronously (once, cached); sync() before it's ready just
+// records the request and the load's .then() replays the latest one.
+export function buildWoodPile(defaultCapacity) {
+  const group = new THREE.Group();
+  // One hex prism along X; cylinder groups are side, top, bottom -> bark, end, end.
+  const logGeo = new THREE.CylinderGeometry(LOG_R, LOG_R, LOG_LEN, 6);
+  logGeo.rotateZ(Math.PI / 2);
+  logGeo.translate(0, LOG_R * Math.sqrt(3) / 2, 0); // flat face down, resting on y=0
+  const logMats = [
+    new THREE.MeshLambertMaterial({ color: "#7a4c22", flatShading: true }),
+    new THREE.MeshLambertMaterial({ color: "#c9a27a", flatShading: true }),
+    new THREE.MeshLambertMaterial({ color: "#c9a27a", flatShading: true }),
+  ];
+  function makeLogs(n, parent) {
+    const m = new THREE.InstancedMesh(logGeo, logMats, n);
+    m.castShadow = true; m.count = 0; // no receiveShadow: the old stack did not take camper shadows either
+    parent.add(m);
+    return m;
+  }
+  const mainLogs = makeLogs(10, group);
+
+  const palletGroup = new THREE.Group();
+  palletGroup.position.set(1.3, 0, 0.05);
+  palletGroup.visible = false;
+  palletGroup.add(buildPalletSlats());
+  const palletLogs = makeLogs(3, palletGroup);
+  group.add(palletGroup);
+
+  const kindling = buildKindling();
+  kindling.visible = false;
+  group.add(kindling);
+
+  const m4 = new THREE.Matrix4();
+  function place(mesh, positions, shown) {
+    const n = Math.min(shown, positions.length);
+    for (let i = 0; i < n; i++) {
+      // A small fixed twist per slot so the stack is not machine-perfect.
+      // Logs run front to back (toward the camera) so their bark faces the firelight
+      // and the pale cut ends face the player, like the old Kenney stack.
+      m4.makeRotationY(Math.PI / 2 + ((i * 37) % 7 - 3) * 0.02).setPosition(positions[i].z, positions[i].y, 0);
+      mesh.setMatrixAt(i, m4);
+    }
+    mesh.count = n;
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.computeBoundingSphere();
+  }
+  let lastWood = null, lastCapacity = null, lastEarned = null;
+  function sync(wood, capacity, earned) {
+    if (wood === lastWood && capacity === lastCapacity && earned === lastEarned) return;
+    lastWood = wood; lastCapacity = capacity; lastEarned = earned;
+    const main = rowSlots(pileRows(capacity), 0);
+    place(mainLogs, main, shownSlots(Math.min(wood, capacity), capacity, main.length));
+    palletGroup.visible = !!earned;
+    const pal = rowSlots(PALLET_ROWS, PALLET_TOP);
+    place(palletLogs, pal, shownSlots(Math.max(0, Math.min(wood - capacity, PALLET_MAX_LOGS)), PALLET_MAX_LOGS, pal.length));
+    kindling.visible = wood <= 0;
+  }
+  sync(defaultCapacity, defaultCapacity, false);
+  return { group, sync };
 }
 
 function makeSmokeTexture() {
