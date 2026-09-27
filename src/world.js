@@ -2,12 +2,12 @@
 // primitives for the cabin, camper, cooler, gas can, chairs and poker (nothing in
 // the kit covers those). Art direction: docs/mockups/concept-A-bear-right.png.
 import * as THREE from "three";
-import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
+import { mergeGeometries, mergeVertices } from "three/addons/utils/BufferGeometryUtils.js";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
-import { LAYOUT, FIRE, REFINED_CAMPERS } from "./config.js?v=140";
-import { spawnModel, lerpColor, mulberry32, buildCabin, buildCooler, buildGasCan, buildCampChair, buildPokerStick } from "./props.js?v=140";
-import { buildTravelTrailer } from "./trailer.js?v=140";
-import { buildFire } from "./fire.js?v=140";
+import { LAYOUT, FIRE, REFINED_CAMPERS } from "./config.js?v=144";
+import { spawnModel, lerpColor, mulberry32, buildCabin, buildCooler, buildGasCan, buildCampChair, buildPokerStick } from "./props.js?v=144";
+import { buildTravelTrailer } from "./trailer.js?v=144";
+import { buildFire } from "./fire.js?v=144";
 
 export function buildWorld(canvas) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -1460,25 +1460,61 @@ const mouthSmileGeo = (() => {
 const mouthOpenGeo = new THREE.CylinderGeometry(0.022, 0.026, 0.03, 8);
 const mouthMat = solidMaterial("#3a1c14");
 
-// Outline: a scaled, back-face-only dark shell as a child of the torso and
-// the head (the two parts that define the silhouette at a distance), reusing
-// each part's own geometry so it always matches exactly and inherits any
-// build scale applied to its host mesh automatically. Two extra draw calls
-// per refined camper -- everything else in the refine pass is either
-// zero-cost (animation, geometry swaps on parts that already existed) or
-// folded into an existing merged mesh (the torso taper).
+// Outline: a back-face-only dark shell as a child of the torso and the head
+// (the two parts that define the silhouette at a distance), reusing each
+// part's own geometry so it always matches exactly and inherits any build
+// scale applied to its host mesh automatically. Two extra draw calls per
+// refined camper -- everything else in the refine pass is either zero-cost
+// (animation, geometry swaps on parts that already existed) or folded into
+// an existing merged mesh (the torso taper).
 //
 // Round 2 (09/27/2026, Bryan: "it barely shows at night"): 1.05-1.06 was
 // only a couple of percent of inflation, a fraction of a pixel at the
-// gameplay camera's distance or on a phone. OUTLINE_SCALE is a flat 14%,
-// about 5x thicker, which is what actually reads at that size; still just
-// the same two draw calls; see the round-2 sheet for a before/after look at
-// the gameplay camera and the phone frame.
-const OUTLINE_SCALE = 1.14;
-const outlineMat = new THREE.MeshBasicMaterial({ color: "#080706", side: THREE.BackSide, toneMapped: false });
-function addOutline(hostMesh, scale = OUTLINE_SCALE) {
-  const outline = new THREE.Mesh(hostMesh.geometry, outlineMat);
-  outline.scale.setScalar(scale);
+// gameplay camera's distance or on a phone, so the hull was scaled up to a
+// flat 14% instead.
+//
+// Round 3 (09/27/2026, Bryan: "choppy in places"): a uniform SCALE hull
+// moves every vertex away from the mesh's own local origin, not along its
+// own surface -- fine for a shape like a sphere centered on that origin, but
+// the torso is two separate RoundedBoxGeometry boxes (chest, hip) offset
+// well above/below it, so scaling stretched them apart at the waist seam,
+// and the bevel facets around each box's rounded corners (flat-shaded, not
+// welded, so adjoining faces don't share a normal) each moved a different
+// amount and direction, splitting open at the edges. Replaced with the
+// standard robust technique: weld the geometry into shared vertices purely
+// by position (dropping normal/uv first, since those differ across a hard
+// edge/UV seam and would otherwise block the weld there), compute smooth
+// per-vertex normals on that welded copy, then push every vertex outward
+// along its own averaged normal by a fixed WORLD thickness. A constant
+// physical shell thickness everywhere closes the corner gaps and the waist
+// seam; polygonOffset on the material is cheap insurance against z-fighting
+// at the grazing angles where the shell is thinnest.
+const OUTLINE_THICKNESS = 0.016;
+const outlineGeoCache = new WeakMap();
+function buildOutlineGeometry(hostGeometry, thickness = OUTLINE_THICKNESS) {
+  const cached = outlineGeoCache.get(hostGeometry);
+  if (cached) return cached;
+  const welded = hostGeometry.clone();
+  welded.deleteAttribute("normal");
+  welded.deleteAttribute("uv");
+  const g = mergeVertices(welded, 1e-4);
+  g.computeVertexNormals();
+  const pos = g.attributes.position, nrm = g.attributes.normal;
+  for (let i = 0; i < pos.count; i++) {
+    pos.setX(i, pos.getX(i) + nrm.getX(i) * thickness);
+    pos.setY(i, pos.getY(i) + nrm.getY(i) * thickness);
+    pos.setZ(i, pos.getZ(i) + nrm.getZ(i) * thickness);
+  }
+  pos.needsUpdate = true;
+  outlineGeoCache.set(hostGeometry, g);
+  return g;
+}
+const outlineMat = new THREE.MeshBasicMaterial({
+  color: "#080706", side: THREE.BackSide, toneMapped: false,
+  polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
+});
+function addOutline(hostMesh, thickness = OUTLINE_THICKNESS) {
+  const outline = new THREE.Mesh(buildOutlineGeometry(hostMesh.geometry, thickness), outlineMat);
   outline.castShadow = false;
   hostMesh.add(outline);
   return outline;

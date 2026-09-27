@@ -239,7 +239,7 @@ export const HEADLAMP = {
 // HEADLAMP.intensity/fireLight above (a pre-r155-style "2-ish" would be invisible
 // next to them).
 export const TRUCK = {
-  driveSeconds: 10.5,         // spawn point (beyond the tree line) to LAYOUT.truckPark, a wide loop around the outside of every hazard to the left-side spot
+  driveSeconds: 10.5,         // spawn point (beyond the tree line) to LAYOUT.truckPark, a wide loop around the outside of every hazard
   lightsFadeInSeconds: 1.3,   // headlights visible before the truck starts moving
   litSeconds: 3.4,            // stopped, lights up, sweeping/lighting the campers
   fadeOutSeconds: 1.1,        // headlights fade to off before Tom gets out
@@ -288,18 +288,28 @@ export const LAYOUT = {
   // from origin (~7.6) is just past PLAYER.maxRadius (7.2) but within reach of a
   // player standing at the boundary, same as the cabin/camper doors themselves.
   pallet: { x: -5.1, z: -5.7 },
-  // Tom W's truck (midnight arrival feature): parks on the LEFT, past the gas
-  // can/cooler/pallet cluster, beyond the cabin's near side (radius ~9.8). Not
-  // the right side on purpose: every right-side spot at a radius the fixed
-  // camera (0, 5.5, 15) actually keeps on screen also falls inside "in front of
-  // the trailer," the yard reserved for cornhole boards -- confirmed by
-  // projecting candidates through the camera's own matrices, not eyeballing it
-  // (see the truck feature's report). This spot clears cabinDoor by ~3.3,
-  // gasCan by ~6.9, cooler by ~4.8, pallet by ~5.0, and the bear corridor by
-  // ~9.6, and it's ~155px onto the canvas from the left edge at 1440x900, not
-  // clipped. Final parked heading faces the origin (see updateTruckArrival in
-  // game.js) so the headlights sweep the campers before they switch off.
-  truckPark: { x: -9.3, z: -3.0 },
+  // Tom W's truck (midnight arrival feature), repositioned 09/27/2026 (Bryan:
+  // "park the truck more in the background to the right of the cabin"). The
+  // old spot (-9.3, -3.0) sat almost due left of camp at nearly the same
+  // depth as the cabin, reading as "beside" it rather than behind it. This
+  // spot is well back (z -9.6, deeper than the cabin's -7) and, on screen, to
+  // the right of the cabin (cabin's own NDC x is roughly -0.52 at 1440x900;
+  // this spot projects to roughly -0.21, clearly inside/right of that) while
+  // staying left of center so it reads as background, not a second building
+  // in the main sightline. Radius from origin (~10.1) matches the cabin's
+  // (~10.3) and the trailer's (~10.6), so it sits at the same clearing edge
+  // they do rather than among the tree ring. Confirmed by projecting through
+  // the gameplay camera's own matrices at both 1440x900 and 844x390 (both
+  // land around NDC y 0.72-0.83, comfortably on screen, not clipped) rather
+  // than eyeballed. Clears cabinDoor by ~7.1, camperDoor/trailer by ~11+,
+  // pallet by ~5.2, and the bear corridor (LAYOUT.bearEntry toward the fire)
+  // by ~4.3. The approach path's loop in game.js's updateMidnight() was
+  // shortened to match (see the comment there) so the final leg swings
+  // straight into this spot instead of sweeping on toward the cabin's angle
+  // and doubling back. Final parked heading still faces the origin (see
+  // updateTruckArrival in game.js) so the headlights sweep the campers
+  // before they switch off.
+  truckPark: { x: -3.2, z: -9.6 },
   // Johnny D's cornhole boards: off to the left side (Bryan 09/27), outside the
   // walkable radius, clear of the gas can and of Tom W's road on the right.
   // `rot` turns the pair so it runs along the edge of the clearing.

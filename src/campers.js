@@ -22,14 +22,16 @@ export const campers = [
     look: { build: "slim", top: "fleece", topColor: "#8a2e2a", hiVisHem: true, pants: "shorts-camo", hair: { color: "#c9c9c9" }, cap: "#3d6b35", hat: "beanie" },
     warm: "Remember when I skied the pond?", cold: "The pond was warmer than this.", leaving: "I'm going to go ski the pond." },
   { id: "perry-s", name: "Perry S", cap: "#7f5539", shirt: "#e9c46a",
-    look: { build: "slim", top: "tee", topColor: "#1d3a63", pants: "black", cap: "#c9a86a", glasses: "clear", beard: "short", hair: { color: "#5a3d24" }, watch: true },
+    look: { build: "slim", top: "tee", topColor: "#1d3a63", pants: "black", cap: "#c9a86a", glasses: "clear", hair: { color: "#5a3d24" }, watch: true },
     warm: "Anyone interested in some 'Great Value' cheese puffs?", cold: "I never did get that tent up.", leaving: "I'm sleeping in the car." },
   { id: "johnny-d", name: "Johnny D", cap: "#003049", shirt: "#90e0ef",
     look: { build: "slim", top: "quarterzip", topColor: "#7d8791", pants: "jeans", hair: { color: "#e8e8e0" }, cap: "#1f6f6b", hat: "bucket", watch: true },
     warm: "Going live on cornhole!", cold: "Winners don't sit in the cold.", leaving: "Rematch tomorrow. I'm out." },
   { id: "spitty", name: "Spitty", cap: "#9d4edd", shirt: "#ffafcc",
     look: { build: "big", top: "longsleeve", topColor: "#5c6b3f", pants: "jeans", hair: "bald", cap: "#d6478a", hat: "beanie" },
-    warm: "Bologna Yogurt anyone?", cold: "My yogurt's colder than frozen bologna.", leaving: "I'm taking the yogurt to bed." },
+    // leaving line is Bryan's (09/27/2026), verbatim, replacing the earlier
+    // "I'm taking the yogurt to bed." -- see docs/CAMPERS.md.
+    warm: "Bologna Yogurt anyone?", cold: "My yogurt's colder than frozen bologna.", leaving: "All right boys, I'm out" },
   { id: "razoo", name: "Razoo", cap: "#283618", shirt: "#dda15e",
     look: { build: "slim", top: "fleece", topColor: "#2f6b46", pants: "black", cap: "#8fd694", hair: { color: "#6b4423" } },
     warm: "Please turn up Hell's Anus a notch!", cold: "My toes are colder than my trumpet mouthpiece in December!", leaving: "I'll be right back...really..." },
@@ -46,9 +48,14 @@ export const snacks = {
 };
 
 // Signature emotes for the lobby. Names show on screen.
+// 09/27/2026 (Bryan): Tom S's Coffee Mug Sip renamed Yeti Cheers (a Yeti-style
+// tumbler cheers, replacing the old mug-on-the-forearm look); Bryan J's Bourbon
+// Toast replaced by Trump Dance (fist-pump dance, no held glass); Perry S's
+// Cheese Puff Toss replaced by Puff Bounce (knee-bounce, elbow-flap dance).
+// Johnny D, Chris Occ, Brian R and Scott K are unchanged.
 export const emotes = {
-  "tom-s": "Coffee Mug Sip", "chris-occ": "Air Guitar", "bryan-j": "Bourbon Toast", "brian-r": "Pond Ski",
-  "perry-s": "Cheese Puff Toss", "johnny-d": "Cornhole Toss", "spitty": "Yogurt Spoon", "razoo": "Trumpet Solo", "scott-k": "Black Hawk",
+  "tom-s": "Yeti Cheers", "chris-occ": "Air Guitar", "bryan-j": "Trump Dance", "brian-r": "Pond Ski",
+  "perry-s": "Puff Bounce", "johnny-d": "Cornhole Toss", "spitty": "Yogurt Spoon", "razoo": "Trumpet Solo", "scott-k": "Black Hawk",
 };
 
 // Random comments, mixed into the chatter. "live" lines belong to Johnny D. "sky" lines trigger a sky event.

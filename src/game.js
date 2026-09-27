@@ -1,13 +1,13 @@
 // All In Jefferson, prototype 1: the fire loop on a flat plane with box campers.
 import * as THREE from "three";
-import { NIGHT_SECONDS, NIGHT_START_MIN, NIGHT_END_MIN, MIDNIGHT_MIN, FIRE, WIND, CAMPER, BEAR, PLAYER, LAYOUT, POWERUPS, EVENTS, HOT_LEVELS, SMOKE, DIFFICULTY, HINTS, PHONE_FOLLOW, KEG, HEAT, HEADLAMP, TRUCK } from "./config.js?v=140";
-import { initSound, coyoteYip, whoosh, growl, bang, startCrackle, setCrackle, footstep, logLand, pokeSound, buzz, playIntroThenLoop, startLoop, stopMusic, playDawn, toggleMusic, musicEnabled, musicActive, bearTheme, bearRideTheme, bearWomp, duckMusic, hissSteam, truckRumble, truckDoorThunk } from "./sound.js?v=140";
-import { campers as roster, pickPlayer, commitPick, snacks, emotes, comments, coolerComments, kegCheers, kegFireYell } from "./campers.js?v=140";
-import { buildWorld, makeCamperMesh, makeChairMesh, makeLogMesh, makePalletMesh, setSeated, stepWalkCycle, stepBearWalk, SEATED_DROP, setExpression } from "./world.js?v=140";
-import { buildMiniKeg, buildGuitar, buildTrumpet, buildBourbonGlass, buildYogurtCup, buildCheesePuffsBag, buildCoffeeMug, buildWaterSkis, buildFlightHelmet, buildCornholeSet } from "./props.js?v=140";
-import { buildPickupTruck, TRUCK_GEOM } from "./truck.js?v=140";
-import { updateFireVisuals } from "./fire.js?v=140";
-import { initShareCardButtons } from "./sharecard.js?v=140";
+import { NIGHT_SECONDS, NIGHT_START_MIN, NIGHT_END_MIN, MIDNIGHT_MIN, FIRE, WIND, CAMPER, BEAR, PLAYER, LAYOUT, POWERUPS, EVENTS, HOT_LEVELS, SMOKE, DIFFICULTY, HINTS, PHONE_FOLLOW, KEG, HEAT, HEADLAMP, TRUCK } from "./config.js?v=144";
+import { initSound, coyoteYip, whoosh, growl, bang, startCrackle, setCrackle, footstep, logLand, pokeSound, buzz, playIntroThenLoop, startLoop, stopMusic, playDawn, toggleMusic, musicEnabled, musicActive, bearTheme, bearRideTheme, bearWomp, duckMusic, hissSteam, truckRumble, truckDoorThunk } from "./sound.js?v=144";
+import { campers as roster, pickPlayer, commitPick, snacks, emotes, comments, coolerComments, kegCheers, kegFireYell } from "./campers.js?v=144";
+import { buildWorld, makeCamperMesh, makeChairMesh, makeLogMesh, makePalletMesh, setSeated, stepWalkCycle, stepBearWalk, SEATED_DROP, setExpression } from "./world.js?v=144";
+import { buildMiniKeg, buildGuitar, buildTrumpet, buildBourbonGlass, buildYogurtCup, buildCheesePuffsBag, buildCoffeeMug, buildWaterSkis, buildFlightHelmet, buildCornholeSet, buildYetiTumbler, buildSpoon } from "./props.js?v=144";
+import { buildPickupTruck, TRUCK_GEOM } from "./truck.js?v=144";
+import { updateFireVisuals } from "./fire.js?v=144";
+import { initShareCardButtons } from "./sharecard.js?v=144";
 
 const canvas = document.getElementById("scene");
 const world = buildWorld(canvas);
@@ -118,6 +118,7 @@ const truckBeams = [-1, 1].map(() => {
   // around X swings the apex to local -Z and the (wide) base to local +Z, so
   // positioning the group's center TRUCK.beamLength/2 forward of the lens puts
   // the narrow apex right at the lens and the flared base out at beamLength.
+  cone.rotation.order = "YXZ"; // heading (y) must apply after the tip-over (x), or the beams ignore the truck's heading (Bryan: headlights backwards)
   cone.rotation.x = -Math.PI / 2;
   cone.frustumCulled = false;
   // Left visible (opacity 0 already hides it) rather than toggled off, same
@@ -520,12 +521,20 @@ function placePropAtChair(spec, base) {
 // Perry (tossing single puffs, not the bag), Johnny D (throwing motion,
 // no separate single-bean-bag mesh), and Brian R (skis were not asked to be
 // held); Scott K's helmet is handled separately below since it swaps onto
-// the head, not a hand.
+// the head, not a hand. Tom S holds a Yeti-style tumbler for his "Yeti
+// Cheers" emote (09/27: replaces the old coffee-mug-on-the-forearm look,
+// which read like a bloody arm injury); his chairside ground prop stays the
+// coffee mug (PROP_BUILDERS above), so the two props are deliberately
+// different now. Bryan J has no entry here any more: his "Trump Dance"
+// emote (09/27, replacing Bourbon Toast) doesn't hold the bourbon glass, so
+// there is nothing for this map to show during his emote (PROP_BUILDERS
+// above still gives him the glass at his chair). Spitty's spoon is handled
+// separately below (his own bespoke rig, like Johnny D's bag), since it has
+// to travel between the cup and his mouth rather than just toggle visible.
 const HELD_PROP_BUILDERS = {
   "chris-occ": { build: buildGuitar, arm: "armR", pos: [0, -0.16, 0.1], rot: [1.3, 0, 0.25] },
   "razoo": { build: buildTrumpet, arm: "armR", pos: [0.04, -0.32, 0.09], rot: [0, 0.15, 0] },
-  "tom-s": { build: buildCoffeeMug, arm: "armR", pos: [0, -0.3, 0.05], rot: [0, 0, 0] },
-  "bryan-j": { build: buildBourbonGlass, arm: "armR", pos: [0, -0.3, 0.05], rot: [0, 0, 0] },
+  "tom-s": { build: buildYetiTumbler, arm: "armR", pos: [0, -0.24, 0.06], rot: [0, 0, 0] },
   "spitty": { build: buildYogurtCup, arm: "armL", pos: [0, -0.3, 0.05], rot: [0, 0, 0] },
 };
 // Local Y offset (within the head group) that lands a hat at the same spot
@@ -630,6 +639,23 @@ function buildCrew(data) {
     player.mesh.userData.parts[heldSpec.arm === "armL" ? "elbowL" : "elbowR"].add(held);
     player.heldProp = held;
   }
+  // Spitty's lobby emote (Bryan 09/27): a spoon in the other hand (the yogurt
+  // cup above is armL, see HELD_PROP_BUILDERS), parented to armR's elbow the
+  // same way, but built separately since animateEmote below has to swing it
+  // between the cup and his mouth rather than just toggle it visible.
+  player.spoonProp = null;
+  if (data.id === "spitty") {
+    const spoon = buildSpoon();
+    // Out at the hand (like the held props above), not at the elbow joint itself --
+    // buildSpoon() builds it standing straight up from a y=0 base, so this offset
+    // both moves it down the forearm to the hand and tips the handle so the bowl
+    // reads forward instead of straight up past the wrist.
+    spoon.position.set(0, -0.26, 0.07);
+    spoon.rotation.set(-1.5, 0, 0);
+    spoon.visible = false;
+    player.mesh.userData.parts.elbowR.add(spoon);
+    player.spoonProp = spoon;
+  }
   // Johnny D's lobby emote (Bryan 09/27): a bean bag tossed hand to hand. The bag
   // lives on the figure's root so it can arc between the hands.
   player.juggleBag = null;
@@ -638,7 +664,6 @@ function buildCrew(data) {
     bag.castShadow = true; bag.visible = false;
     player.mesh.add(bag);
     player.juggleBag = bag;
-    player.elbowIdle = [player.mesh.userData.parts.elbowL?.rotation.x ?? 0, player.mesh.userData.parts.elbowR?.rotation.x ?? 0];
   }
   window.__aij = { state, player, campers, propRigs, cornholeMesh, keys, renderer, camera, press: () => { spacePressed = true; }, speed: (window.__aij && window.__aij.speed) || 1, cfg: { FIRE, WIND, CAMPER, BEAR, EVENTS, PLAYER, LAYOUT, SMOKE, POWERUPS, KEG, HEAT, HEADLAMP, DIFFICULTY },
     // Headless stepping for tuning runs: advances the logic without waiting for animation frames
@@ -852,14 +877,14 @@ function startNight() {
   // animateEmote only runs during the lobby (updateCamera's "select" branch),
   // so its own per-frame resets stop the instant this leaves "select" -- clear
   // any lobby-emote hold/swap here or the player would carry a floating prop,
-  // or spawn helmeted, for the rest of the night.
+  // or spawn helmeted, for the rest of the night. resetPose (above) already
+  // zeroes elbowL/elbowR and kneeL/kneeR generically, so a bent elbow or knee
+  // from any emote (Johnny D's throw, Bryan J's dance, Perry's flap, Spitty's
+  // spoon) is covered without a per-camper case here; only prop/helmet
+  // *visibility* (not a pose) still needs clearing by hand below.
   if (player.heldProp) player.heldProp.visible = false;
-  if (player.juggleBag) {
-    player.juggleBag.visible = false;
-    const pp = player.mesh.userData.parts;
-    if (pp.elbowL) pp.elbowL.rotation.x = player.elbowIdle[0];
-    if (pp.elbowR) pp.elbowR.rotation.x = player.elbowIdle[1];
-  }
+  if (player.spoonProp) player.spoonProp.visible = false;
+  if (player.juggleBag) player.juggleBag.visible = false;
   if (player.helmetMesh) { player.helmetMesh.visible = false; const p = player.mesh.userData.parts; if (p.cap) p.cap.visible = true; }
   player.pos.set(0, 0, 4.6);
   player.mesh.position.copy(player.pos);
@@ -1163,6 +1188,15 @@ function resetPose(mesh) {
   mesh.rotation.set(0, 0, 0); mesh.scale.set(1, 1, 1);
   p.armL.rotation.set(0, 0, 0); p.armR.rotation.set(0, 0, 0);
   p.head.rotation.set(0, 0, 0); p.body.rotation.set(0, 0, 0);
+  // Elbows and knees (refined-rig joints, world.js buildRefinedCamper) also need
+  // a hard reset here, not just arms/head/body: several emotes now bend one or
+  // both (Bryan J's dance, Perry's flap, Spitty's spoon, Johnny D's throw), and
+  // without this they'd stay bent when the pick changes in the lobby or the
+  // night starts (this same function runs first thing in startNight, below).
+  if (p.elbowL) p.elbowL.rotation.set(0, 0, 0);
+  if (p.elbowR) p.elbowR.rotation.set(0, 0, 0);
+  if (p.kneeL) p.kneeL.rotation.set(0, 0, 0);
+  if (p.kneeR) p.kneeR.rotation.set(0, 0, 0);
 }
 function animateEmote(pl, t) {
   const m = pl.mesh, p = m.userData.parts;
@@ -1173,29 +1207,82 @@ function animateEmote(pl, t) {
   // as the pose above, so switching picks in the lobby never leaves a prop or
   // a swapped helmet stuck showing on whoever is picked next.
   if (pl.heldProp) pl.heldProp.visible = false;
+  if (pl.spoonProp) pl.spoonProp.visible = false;
   if (pl.helmetMesh) { pl.helmetMesh.visible = false; if (p.cap) p.cap.visible = true; }
   const bob = Math.sin(t * 3) * 0.04;
   switch (pl.data.id) {
-    case "tom-s": // coffee mug sip: right arm up to the mouth, head tips back
-      p.armR.rotation.x = -1.7 + Math.sin(t * 2) * 0.25; p.armR.rotation.z = -0.5;
-      p.head.rotation.x = -0.15 + Math.sin(t * 2) * 0.12; m.position.y = bob;
-      if (pl.heldProp) pl.heldProp.visible = true; break;
+    case "tom-s": { // Yeti Cheers (09/27, replaces Coffee Mug Sip): raise the tumbler
+      // up and out into a toast, a small tilt at the top, back down, repeat. The
+      // swing is mostly on Z (up and OUT to the side, like a toast), not X (which
+      // reads more like sipping toward the mouth) -- same axis the old Bourbon
+      // Toast used for its big raise.
+      const k = (t * 1.05) % 1;
+      let lift; // 0 (down) -> 1 (raised out) -> 0, with a hold at the top for the tilt
+      if (k < 0.35) lift = k / 0.35;
+      else if (k < 0.65) lift = 1;
+      else lift = 1 - (k - 0.65) / 0.35;
+      const tilt = (k >= 0.35 && k < 0.65) ? Math.sin((k - 0.35) / 0.3 * Math.PI) * 0.14 : 0;
+      // Raised up and forward over his head, slight bend at the elbow (Opus, 09/27:
+      // the first pass laid the tumbler sideways across his chest).
+      p.armR.rotation.x = -0.35 - lift * 2.0;
+      p.armR.rotation.z = -0.12 - lift * 0.3;
+      if (p.elbowR) p.elbowR.rotation.x = -0.25 - lift * 0.35;
+      p.head.rotation.x = -lift * 0.15;
+      p.head.rotation.z = tilt * 0.12;
+      m.position.y = bob * 0.4;
+      if (pl.heldProp) {
+        // Keep the tumbler upright in the world whatever the arm does, with the
+        // small cheers tilt toward the fire at the top.
+        const cup = pl.heldProp;
+        m.updateMatrixWorld(true);
+        const parentQ = cup.parent.getWorldQuaternion(new THREE.Quaternion());
+        const want = m.getWorldQuaternion(new THREE.Quaternion()).multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(tilt * 1.4, 0, -0.1)));
+        cup.quaternion.copy(parentQ.invert().multiply(want));
+        // Seat it in the fist, pushed toward the camera so the hand never hides it.
+        const grip = cup.parent.localToWorld(new THREE.Vector3(0, -0.27, 0)).add(new THREE.Vector3(0, -0.06, 0.1));
+        cup.position.copy(cup.parent.worldToLocal(grip));
+        cup.visible = true;
+      }
+      break; }
     case "chris-occ": // air guitar -- now a real one, held against the body
       p.armL.rotation.x = -1.2; p.armL.rotation.z = 0.5;
       p.armR.rotation.x = -0.9 + Math.sin(t * 12) * 0.35; p.armR.rotation.z = -0.3;
       m.rotation.y = Math.sin(t * 1.5) * 0.35; m.position.y = Math.abs(Math.sin(t * 6)) * 0.08;
       if (pl.heldProp) pl.heldProp.visible = true; break;
-    case "bryan-j": // bourbon toast
-      p.armR.rotation.z = -2.3 + Math.sin(t * 3) * 0.12; p.armR.rotation.x = -0.4;
-      m.rotation.z = Math.sin(t * 1.5) * 0.06; m.position.y = bob;
-      if (pl.heldProp) pl.heldProp.visible = true; break;
+    case "bryan-j": { // Trump Dance (09/27, replaces Bourbon Toast): elbows bent, fists
+      // pumping alternately in front of the chest, hip sway, a small knee bounce.
+      // No held glass for this one (the bourbon glass stays at his chair, see
+      // HELD_PROP_BUILDERS above).
+      const k = t * 2.6;
+      const pumpL = Math.sin(k) * 0.55, pumpR = Math.sin(k + Math.PI) * 0.55;
+      p.armL.rotation.x = -0.85 + pumpL; p.armR.rotation.x = -0.85 + pumpR;
+      p.armL.rotation.z = 0.18; p.armR.rotation.z = -0.18;
+      if (p.elbowL) p.elbowL.rotation.x = -1.5;
+      if (p.elbowR) p.elbowR.rotation.x = -1.5;
+      const bounce = Math.abs(Math.sin(k * 0.5));
+      m.rotation.z = Math.sin(k * 0.5) * 0.09;              // side-to-side hip sway
+      m.position.x = pl.pos.x + Math.sin(k * 0.5) * 0.045;
+      if (p.kneeL) p.kneeL.rotation.x = 0.12 + bounce * 0.16;
+      if (p.kneeR) p.kneeR.rotation.x = 0.12 + bounce * 0.16;
+      m.position.y = bounce * 0.045;                        // small knee bounce
+      break; }
     case "brian-r": // pond ski: crouch, arms back, lean
       m.scale.set(1, 0.85, 1); p.armL.rotation.x = 1.0; p.armR.rotation.x = 1.0;
       p.body.rotation.x = 0.25; p.head.rotation.x = 0.15;
       m.rotation.z = Math.sin(t * 2.2) * 0.18; m.position.y = Math.abs(Math.sin(t * 4.4)) * 0.05; break;
-    case "perry-s": { // cheese puff toss into the mouth
-      const k = (t * 1.4) % 1; const toss = k < 0.5 ? -0.6 - k * 3.2 : -2.2 + (k - 0.5) * 3.2;
-      p.armR.rotation.x = toss; p.head.rotation.x = -0.35; m.position.y = bob; break; }
+    case "perry-s": { // Puff Bounce (09/27, replaces Cheese Puff Toss): knees bend in a
+      // bounce while both elbows lift up and out, chicken-flap style, rhythmic.
+      const k = t * 3.2;
+      const flap = Math.sin(k);
+      const bounce = Math.abs(Math.sin(k * 0.5));
+      p.armL.rotation.x = -0.5; p.armR.rotation.x = -0.5;
+      p.armL.rotation.z = -0.95 - flap * 0.15; p.armR.rotation.z = 0.95 + flap * 0.15;   // out to the sides (see scott-k's sign convention)
+      if (p.elbowL) p.elbowL.rotation.x = -1.3 - flap * 0.2;
+      if (p.elbowR) p.elbowR.rotation.x = -1.3 + flap * 0.2;
+      if (p.kneeL) p.kneeL.rotation.x = 0.15 + bounce * 0.25;
+      if (p.kneeR) p.kneeR.rotation.x = 0.15 + bounce * 0.25;
+      m.position.y = bounce * 0.06;
+      break; }
     case "johnny-d": { // bean bag tossed hand to hand (Bryan 09/27)
       const k = (t * 0.85) % 1;               // one full left-right-left cycle
       const half = k < 0.5 ? 0 : 1, u = (k % 0.5) * 2;
@@ -1224,11 +1311,22 @@ function animateEmote(pl, t) {
         bag.visible = true;
       }
       break; }
-    case "spitty": // yogurt spoon
-      p.armL.rotation.x = -1.3; p.armL.rotation.z = 0.35;
-      p.armR.rotation.x = -1.2 + Math.sin(t * 5) * 0.55; p.armR.rotation.z = -0.4;
-      p.head.rotation.x = -0.1; m.position.y = bob;
-      if (pl.heldProp) pl.heldProp.visible = true; break;
+    case "spitty": { // Yogurt Spoon: spoon dips into the cup (left hand, steady), then
+      // rises to the mouth, repeat (Bryan 09/27: hold both the cup and a separate spoon).
+      const k = (t * 0.9) % 1;
+      let raise; // 0 at the cup -> 1 at the mouth -> 0
+      if (k < 0.4) raise = 0;
+      else if (k < 0.55) raise = (k - 0.4) / 0.15;
+      else if (k < 0.85) raise = 1;
+      else raise = 1 - (k - 0.85) / 0.15;
+      p.armL.rotation.x = -1.3; p.armL.rotation.z = 0.35;   // yogurt cup, steady
+      p.armR.rotation.x = -0.4 - raise * 1.3; p.armR.rotation.z = -0.3;
+      if (p.elbowR) p.elbowR.rotation.x = -0.25 - raise * 0.35;
+      p.head.rotation.x = -0.1 - raise * 0.2;
+      m.position.y = bob;
+      if (pl.heldProp) pl.heldProp.visible = true;
+      if (pl.spoonProp) pl.spoonProp.visible = true;
+      break; }
     case "razoo": // trumpet solo: both arms up front, lean back, bounce
       p.armL.rotation.x = -1.6; p.armR.rotation.x = -1.5; p.armL.rotation.z = 0.25; p.armR.rotation.z = -0.25;
       p.body.rotation.x = -0.15; p.head.rotation.x = -0.35 + Math.sin(t * 9) * 0.06;
@@ -2668,9 +2766,9 @@ function updateMidnight() {
   // Path: from well beyond the tree line (past LAYOUT.roadEntry, same general
   // heading -- both off camera on purpose, same as roadEntry always was),
   // around the OUTSIDE of every hazard on a radius-13.5 arc, then in to
-  // LAYOUT.truckPark on the left. The final position/heading get hard-set the
-  // moment the drive timer completes (below), so this path only has to get
-  // the sweep and the approach right, not land the tangent exactly.
+  // LAYOUT.truckPark. The final position/heading get hard-set the moment the
+  // drive timer completes (below), so this path only has to get the sweep
+  // and the approach right, not land the tangent exactly.
   //
   // The arc's radius was picked, not guessed: the camper door (radius 7.9)
   // and the trailer (10.6) sit only ~9 degrees apart in angle, and the cabin
@@ -2682,10 +2780,17 @@ function updateMidnight() {
   // clears every hazard by 3.2+ units and never drops inside radius 9.8 (the
   // ring is 3.3), holding steady even as the curve overshoots a little
   // between control points.
+  //
+  // The sweep's endpoint (09/27/2026, truck relocated per Bryan): LAYOUT.
+  // truckPark now sits at angle ~198deg/radius ~10.1 (measured the same way,
+  // atan2(x, z) from +Z), well short of the cabin's ~227deg -- so the loop
+  // now stops at 195deg instead of continuing on toward 235deg and doubling
+  // back past the cabin's angle to reach the park point. Shorter sweep, same
+  // radius, same clearance logic.
   const spawn = new THREE.Vector3(LAYOUT.roadEntry.x * 1.7, 0, LAYOUT.roadEntry.z * 1.7);
   const road = new THREE.Vector3(LAYOUT.roadEntry.x, 0, LAYOUT.roadEntry.z);
   const loopPoints = [];
-  for (let deg = 95; deg <= 235; deg += 20) {
+  for (let deg = 95; deg <= 195; deg += 20) {
     const a = THREE.MathUtils.degToRad(deg);
     loopPoints.push(new THREE.Vector3(Math.sin(a) * 13.5, 0, Math.cos(a) * 13.5));
   }

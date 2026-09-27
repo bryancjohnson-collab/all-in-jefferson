@@ -435,7 +435,13 @@ export function buildGuitar() {
 // Every part is the same brass tone, so the whole thing is one draw call.
 export function buildTrumpet() {
   const brass = lambert("#c9a227");
-  const bell = new THREE.CylinderGeometry(0.075, 0.022, 0.22, 10);
+  // radiusTop (at local +Y, the end nearer the leadpipe/valves after the
+  // rotate below) must be the NARROW one and radiusBottom (local -Y, the
+  // outermost end) the WIDE flare -- swapped before (0.075 top/0.022 bottom),
+  // which put the bell's flare right at the leadpipe joint and pinched the
+  // horn narrow at its outer tip, i.e. the bell flaring backwards, toward the
+  // mouthpiece instead of away from it.
+  const bell = new THREE.CylinderGeometry(0.022, 0.075, 0.22, 10);
   bell.rotateZ(Math.PI / 2); bell.translate(0.30, 0, 0);
   const leadpipe = new THREE.CylinderGeometry(0.022, 0.022, 0.3, 8);
   leadpipe.rotateZ(Math.PI / 2); leadpipe.translate(0.03, 0, 0);
@@ -572,18 +578,32 @@ export function buildFlightHelmet() {
 export function buildCornholeSet(gap = 3.6) {
   const g = new THREE.Group();
   const wood = lambert("#c8923f"), dark = lambert("#241c14"), bagColor = lambert("#1d3557");
-  // One board, built canonically with its raised/hole end at local +Z and its
-  // low legs at local -Z, resting on y=0. `placedBoard` then translates it to
-  // one side of the gap and, for the far board, rotates it 180 degrees first
-  // so the two hole ends face each other across the gap.
+  // One board, built canonically with its raised/hole end at local +Z,
+  // resting on y=0. `placedBoard` then translates it to one side of the gap
+  // and, for the far board, rotates it 180 degrees first so the two hole
+  // ends face each other across the gap.
+  //
+  // A real board's folding legs prop up the SAME end as the hole (~12in
+  // rise); the front/thrower edge has no legs and just sits low, a few
+  // inches off the ground on its own frame (~3-4in). The previous version
+  // had that backwards: legs at local -Z (the low, hole-less front edge,
+  // where they towered a full 0.4 units above a board surface only ~0.1
+  // units high there) and nothing propping up the actual hole end -- "the
+  // legs are on the wrong sides" (Bryan). Fixed: legs moved to local +Z,
+  // under the hole, sized to meet the (now correctly tilted) surface there;
+  // the low end is left leg-less so it just meets the ground near the 3-4in
+  // spec. rotateX bumped from -0.19 to -0.23 so the tilt's actual rise (~12in
+  // high end, ~4in low end over the board's 0.9-unit length, at this scene's
+  // ~1-unit-per-meter scale) matches a real board's slope instead of an
+  // eyeballed lean.
   function boardGeo() {
     const ramp = new THREE.BoxGeometry(0.6, 0.04, 0.9);
-    ramp.rotateX(-0.19); ramp.translate(0, 0.2, 0.18);
-    const legGeo = new THREE.CylinderGeometry(0.018, 0.018, 0.4, 6);
-    const legL = legGeo.clone(); legL.translate(-0.24, 0.2, -0.3);
-    const legR = legGeo.clone(); legR.translate(0.24, 0.2, -0.3);
+    ramp.rotateX(-0.23); ramp.translate(0, 0.2, 0.18);
+    const legGeo = new THREE.CylinderGeometry(0.018, 0.018, 0.26, 6);
+    const legL = legGeo.clone(); legL.translate(-0.24, 0.13, 0.32);
+    const legR = legGeo.clone(); legR.translate(0.24, 0.13, 0.32);
     const hole = new THREE.CylinderGeometry(0.07, 0.07, 0.01, 10);
-    hole.rotateX(-0.19); hole.translate(0, 0.395, 0.42);
+    hole.rotateX(-0.23); hole.translate(0, 0.32, 0.42);
     return { wood: [ramp, legL, legR], hole };
   }
   function placedBoard(z, flip) {
@@ -603,5 +623,45 @@ export function buildCornholeSet(gap = 3.6) {
     bagGeo(0.4, gap / 2 - 0.55, 0.4), bagGeo(-0.3, gap / 2 - 0.65, -0.3),
   ]), bagColor);
   g.add(woodMesh, holeMesh, bags);
+  return g;
+}
+
+// Tom S: Yeti-style tumbler for his "Yeti Cheers" lobby emote (replaces the old
+// Coffee Mug Sip, which read like a bloody arm injury -- Bryan, 09/27). Tall
+// insulated cup, seafoam body, steel rim, a dark lid with a small sipper.
+// Generic, no logo. Held-prop only (game.js's HELD_PROP_BUILDERS); his ground
+// chairside prop stays the coffee mug (buildCoffeeMug, above).
+export function buildYetiTumbler() {
+  const g = new THREE.Group();
+  const body = new THREE.CylinderGeometry(0.05, 0.044, 0.2, 12);
+  body.translate(0, 0.1, 0);
+  const cup = new THREE.Mesh(body, lambert("#4f9d8a"));
+  cup.castShadow = true;
+  const rimGeo = new THREE.TorusGeometry(0.05, 0.007, 6, 12);
+  rimGeo.rotateX(Math.PI / 2); rimGeo.translate(0, 0.2, 0);
+  const rim = new THREE.Mesh(rimGeo, lambert("#c7cdd2"));
+  const lid = new THREE.Mesh(new THREE.CylinderGeometry(0.053, 0.053, 0.02, 12), lambert("#20242a"));
+  lid.position.y = 0.215;
+  const sip = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.022, 8), lambert("#20242a"));
+  sip.position.set(0, 0.236, 0.028);
+  g.add(cup, rim, lid, sip);
+  return g;
+}
+
+// Spitty: a standalone spoon for his other hand (the yogurt cup, built above,
+// already has its own small merged spoon standing in it -- this is a second,
+// separate one so the lobby emote can move it from the cup to his mouth
+// instead of showing two spoons at once; Bryan, 09/27). Built standing
+// straight up (handle along +Y, bowl at the top); game.js's HELD_PROP_BUILDERS-style
+// rig on armR's elbow supplies the tilt.
+export function buildSpoon() {
+  const mat = lambert("#c7cdd2");
+  const handle = new THREE.CylinderGeometry(0.009, 0.009, 0.26, 6);
+  handle.translate(0, 0.13, 0);
+  const bowl = new THREE.SphereGeometry(0.032, 8, 6);
+  bowl.scale(1, 0.55, 1.35);
+  bowl.translate(0, 0.27, -0.01);
+  const g = new THREE.Group();
+  g.add(new THREE.Mesh(mergeGeometries([handle, bowl]), mat));
   return g;
 }
