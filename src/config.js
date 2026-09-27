@@ -106,8 +106,11 @@ export const CAMPER = {
   lossMultiplier: 1.2,     // how fast comfort drops when the fire is low
   gainMultiplier: 0.7,     // how fast it recovers when the fire is up
   neutralFire: 50,         // fire level where comfort holds steady; below it they chill
-  chatterMin: 14,
-  chatterMax: 28,
+  // Widened ~1.5x (polish pass, 09/27/2026): lines were piling up, especially in
+  // the phone speech strip, once displayDuration() (game.js) also started
+  // holding each line up longer.
+  chatterMin: 21,
+  chatterMax: 42,
   tomWComfortBoost: 15,
 };
 

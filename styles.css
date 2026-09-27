@@ -276,8 +276,14 @@ body.touch .clock-panel {
 body.touch .clock { font-size: 16px; }
 body.touch .sub { font-size: 8px; }
 .touch-stats { display: none; }
+/* WOOD then GAS, stacked one per row under the clock (Bryan, polish pass:
+   was one row, WOOD and GAS side by side). Still the same single card as
+   before -- .clock-panel isn't touched -- just taller now, and
+   measureHudFootprint()/updatePhoneSpeechBounds() in game.js read this
+   card's live getBoundingClientRect() every frame, so the speech strip
+   above automatically narrows to clear the new height with no JS change. */
 body.touch .clock-panel .touch-stats {
-  display: flex; flex-direction: row; justify-content: flex-end; gap: 6px;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 2px;
   margin-top: 3px; pointer-events: none;
 }
 
@@ -454,6 +460,11 @@ body.touch .lobby-card { left: max(12vw, env(safe-area-inset-left)); }
 .portrait-overlay.show { display: flex; }
 .rotate-icon { font-size: 52px; color: #ffd98a; transform: rotate(90deg); display: inline-block; animation: pulse 1.6s ease-in-out infinite; }
 .portrait-text { font-size: 18px; font-weight: 700; max-width: 320px; line-height: 1.4; }
+/* Small and friendly, under the main "turn sideways" line (Bryan: add simple
+   Add to Home Screen directions to the portrait overlay). Negative margin pulls
+   it closer than the overlay's own 18px flex gap so it visually reads as a
+   footnote to the message above it, not a second equal-weight line. */
+.portrait-a2hs { font-size: 13px; font-weight: 400; max-width: 300px; line-height: 1.45; opacity: 0.8; margin-top: -8px; }
 
 /* ---------- FPS counter (?fps) ---------- */
 .fps-counter { position: fixed; top: 4px; left: 4px; z-index: 30; background: rgba(0,0,0,0.6); color: #9f9; font: 700 11px monospace; padding: 2px 6px; border-radius: 4px; pointer-events: none; }

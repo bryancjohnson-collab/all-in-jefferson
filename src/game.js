@@ -1,13 +1,13 @@
 // All In Jefferson, prototype 1: the fire loop on a flat plane with box campers.
 import * as THREE from "three";
-import { NIGHT_SECONDS, NIGHT_START_MIN, NIGHT_END_MIN, MIDNIGHT_MIN, FIRE, WIND, CAMPER, BEAR, PLAYER, LAYOUT, POWERUPS, EVENTS, HOT_LEVELS, SMOKE, DIFFICULTY, HINTS, PHONE_FOLLOW, KEG, HEAT, HEADLAMP, TRUCK } from "./config.js?v=146";
-import { initSound, coyoteYip, whoosh, growl, bang, startCrackle, setCrackle, footstep, logLand, pokeSound, buzz, playIntroThenLoop, startLoop, stopMusic, playDawn, toggleMusic, musicEnabled, musicActive, bearTheme, bearRideTheme, bearWomp, duckMusic, hissSteam, truckRumble, truckDoorThunk } from "./sound.js?v=146";
-import { campers as roster, pickPlayer, commitPick, snacks, emotes, comments, coolerComments, kegCheers, kegFireYell } from "./campers.js?v=146";
-import { buildWorld, makeCamperMesh, makeChairMesh, makeLogMesh, makePalletMesh, setSeated, stepWalkCycle, stepBearWalk, SEATED_DROP, setExpression } from "./world.js?v=146";
-import { buildMiniKeg, buildGuitar, buildTrumpet, buildBourbonGlass, buildYogurtCup, buildCheesePuffsBag, buildCoffeeMug, buildWaterSkis, buildFlightHelmet, buildCornholeSet, buildYetiTumbler, buildSpoon } from "./props.js?v=146";
-import { buildPickupTruck, TRUCK_GEOM } from "./truck.js?v=146";
-import { updateFireVisuals } from "./fire.js?v=146";
-import { initShareCardButtons } from "./sharecard.js?v=146";
+import { NIGHT_SECONDS, NIGHT_START_MIN, NIGHT_END_MIN, MIDNIGHT_MIN, FIRE, WIND, CAMPER, BEAR, PLAYER, LAYOUT, POWERUPS, EVENTS, HOT_LEVELS, SMOKE, DIFFICULTY, HINTS, PHONE_FOLLOW, KEG, HEAT, HEADLAMP, TRUCK } from "./config.js?v=147";
+import { initSound, coyoteYip, whoosh, growl, bang, startCrackle, setCrackle, footstep, logLand, pokeSound, buzz, playIntroThenLoop, startLoop, stopMusic, playDawn, toggleMusic, musicEnabled, musicActive, bearTheme, bearRideTheme, bearWomp, duckMusic, hissSteam, truckRumble, truckDoorThunk } from "./sound.js?v=147";
+import { campers as roster, pickPlayer, commitPick, snacks, emotes, comments, coolerComments, kegCheers, kegFireYell } from "./campers.js?v=147";
+import { buildWorld, makeCamperMesh, makeChairMesh, makeLogMesh, makePalletMesh, setSeated, stepWalkCycle, stepBearWalk, SEATED_DROP, setExpression } from "./world.js?v=147";
+import { buildMiniKeg, buildGuitar, buildTrumpet, buildBourbonGlass, buildYogurtCup, buildCheesePuffsBag, buildCoffeeMug, buildWaterSkis, buildFlightHelmet, buildCornholeSet, buildYetiTumbler, buildSpoon } from "./props.js?v=147";
+import { buildPickupTruck, TRUCK_GEOM } from "./truck.js?v=147";
+import { updateFireVisuals } from "./fire.js?v=147";
+import { initShareCardButtons } from "./sharecard.js?v=147";
 
 const canvas = document.getElementById("scene");
 const world = buildWorld(canvas);
@@ -458,6 +458,11 @@ const speechLanes = [null, null];
 const speechBacklog = [];
 const SPEECH_BACKLOG_MAX = 6;
 let speechTickerLastText = "";
+// Touch-only guard so ambient chatter (updateCampers' chatter block, below)
+// never starts a new comment while the last one is still showing in the phone
+// speech strip (Bryan, polish pass: comments "pile up" on phones). Desktop
+// bubbles are unaffected -- this only ever gates on isTouch.
+let chatterBubbleUntil = 0;
 // Phone camera follow state (see updateCamera/actionCornerBoxes far below): also
 // declared here ahead of buildCrew for the same reason as the speech state above.
 const phoneFollowXZ = new THREE.Vector2(0, 0);
@@ -2047,16 +2052,24 @@ function updateCampers(dt) {
   // Chatter: warm lines mixed with random comments
   state.chatterIn -= dt;
   if (state.chatterIn <= 0) {
-    state.chatterIn = rand(CAMPER.chatterMin, CAMPER.chatterMax);
-    const warm = campers.filter((c) => c.state === "seated" && c.comfort >= CAMPER.coolBelow);
-    if (Math.random() < EVENTS.chatterRandomChance) {
-      const pool = comments.filter((k) => !k.who || warm.some((c) => c.data.id === k.who));
-      const k = pick(pool);
-      const c = k && (k.who ? warm.find((c) => c.data.id === k.who) : pick(warm));
-      if (c) { bubble(c, k.text, 4, ""); if (k.sky) startSky(k.sky); }
+    // Phones: don't start a fresh ambient comment while the last one is still
+    // occupying the speech strip -- check back shortly instead of firing anyway
+    // (which is what was piling lines up). Desktop bubbles have room for more
+    // than one at a time, so they're untouched.
+    if (isTouch && state.t < chatterBubbleUntil) {
+      state.chatterIn = 1.5;
     } else {
-      const c = pick(warm);
-      if (c) bubble(c, c.data.warm, 4, "");
+      state.chatterIn = rand(CAMPER.chatterMin, CAMPER.chatterMax);
+      const warm = campers.filter((c) => c.state === "seated" && c.comfort >= CAMPER.coolBelow);
+      if (Math.random() < EVENTS.chatterRandomChance) {
+        const pool = comments.filter((k) => !k.who || warm.some((c) => c.data.id === k.who));
+        const k = pick(pool);
+        const c = k && (k.who ? warm.find((c) => c.data.id === k.who) : pick(warm));
+        if (c) { bubble(c, k.text, 4, ""); chatterBubbleUntil = c.bubble.until; if (k.sky) startSky(k.sky); }
+      } else {
+        const c = pick(warm);
+        if (c) { bubble(c, c.data.warm, 4, ""); chatterBubbleUntil = c.bubble.until; }
+      }
     }
   }
 }
@@ -2979,12 +2992,15 @@ function render(dt) {
   if (state.message.until >= state.t) ui.message.textContent = state.message.text;
   else ui.message.textContent = state.message.hint || "";
 
-  // Fire sound follows the fire; music fades over the last minute and ducks when the fire is low.
-  // Paused: fade the crackle to silence (the pause menu already ducks the music) instead of
-  // leaving it playing over a frozen scene.
+  // Fire sound follows the fire; music plays until ~20s before dawn, then fades
+  // over ~18s so it lands just ahead of endNight's playDawn() sting at
+  // NIGHT_SECONDS, instead of the old 50s fade starting a full minute out (Bryan
+  // heard that as the music running out of song, not a deliberate outro).
+  // Ducks when the fire is low. Paused: fade the crackle to silence (the pause
+  // menu already ducks the music) instead of leaving it playing over a frozen scene.
   if (state.phase === "playing") {
     setCrackle(state.paused ? 0 : level, dt);
-    if (!state.paused && state.t >= NIGHT_SECONDS - 60 && !state.musicFading) { state.musicFading = true; stopMusic(50); }
+    if (!state.paused && state.t >= NIGHT_SECONDS - 20 && !state.musicFading) { state.musicFading = true; stopMusic(18); }
   }
 
   // Fire breath cone from the player's mouth to the pit
@@ -3192,7 +3208,13 @@ function updateTouchSpeech(actors) {
     const name = c === player ? player.data.name : c.data ? c.data.name : c === state.don ? "Don M" : "Alan";
     const color = c === player || c.data ? speechSpeakerColor(c.data || player.data) : (c === state.don ? SPEECH_DON_COLOR : SPEECH_ALAN_COLOR);
     const remaining = Math.max(1.2, b.until - state.t);
-    pushSpeechLine({ name, color, text: b.text, mesh: c.mesh, canon: isCanonSpeechLine(b.text), isPlayer: c === player, dur: remaining * 0.72 });
+    // The 0.72 shrink below predates this polish pass and is kept (it's what
+    // keeps a strip line from outstaying the 3D bubble it mirrors), but it must
+    // never eat back into the same length-based floor displayDuration() just
+    // gave the underlying bubble -- otherwise a short line on a slow-talking
+    // moment could still read as a flash-and-gone. Same floor, applied here to
+    // what's actually on screen in the strip.
+    pushSpeechLine({ name, color, text: b.text, mesh: c.mesh, canon: isCanonSpeechLine(b.text), isPlayer: c === player, dur: Math.max(remaining * 0.72, Math.max(3, b.text.length / 12)) });
   });
   // The announcer ticker merges into the same strip, plain, no name (Bryan: "one
   // place to read everything"). Same new-line detection trick, keyed off the text
@@ -3200,7 +3222,7 @@ function updateTouchSpeech(actors) {
   if (state.message.until > state.t && state.message.text && state.message.text !== speechTickerLastText) {
     speechTickerLastText = state.message.text;
     const remaining = Math.max(1.2, state.message.until - state.t);
-    pushSpeechLine({ name: null, color: null, text: state.message.text, mesh: null, canon: false, isPlayer: false, isTicker: true, dur: remaining * 0.72 });
+    pushSpeechLine({ name: null, color: null, text: state.message.text, mesh: null, canon: false, isPlayer: false, isTicker: true, dur: Math.max(remaining * 0.72, Math.max(3, state.message.text.length / 12)) });
   }
   if (state.message.until <= state.t) speechTickerLastText = "";
 
@@ -3293,12 +3315,23 @@ function renderBoard(result) {
 document.getElementById("title-board").innerHTML = renderBoard(null);
 
 // ---------- Helpers ----------
+// Lines were going by too fast, especially on the phone's speech strip (Bryan,
+// polish pass 09/27/2026). Every bubble()/say() call already passes a duration
+// tuned to its own moment, so instead of touching each of those call sites (and
+// risking event logic or the canon lines themselves), the shared floor lives
+// here: about 1.5x the requested time, with a minimum that scales with how much
+// there is to read (~1s per 12 characters, 3s minimum) so a one-word line and a
+// full sentence both get a fair, proportional read.
+function displayDuration(text, seconds) {
+  const floor = Math.max(3, (text || "").length / 12);
+  return Math.max(seconds * 1.5, floor);
+}
 function say(text, seconds, sticky = false) {
   if (!sticky && state.message.sticky && state.message.until > state.t) return; // a big moment holds the line
-  state.message.text = text; state.message.until = state.t + seconds; state.message.sticky = sticky;
+  state.message.text = text; state.message.until = state.t + displayDuration(text, seconds); state.message.sticky = sticky;
 }
 function setHint(text) { state.message.hint = text; }
-function bubble(c, text, seconds, cls) { c.bubble.text = text; c.bubble.until = state.t + seconds; c.bubble.cls = cls; }
+function bubble(c, text, seconds, cls) { c.bubble.text = text; c.bubble.until = state.t + displayDuration(text, seconds); c.bubble.cls = cls; }
 function pbubble(text, seconds, cls) { bubble(player, text, seconds, cls); }
 function gameMinutes() { return NIGHT_START_MIN + (state.t / NIGHT_SECONDS) * (NIGHT_END_MIN - NIGHT_START_MIN); }
 function clockText() {
