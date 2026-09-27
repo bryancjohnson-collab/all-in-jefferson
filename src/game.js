@@ -1,13 +1,13 @@
 // All In Jefferson, prototype 1: the fire loop on a flat plane with box campers.
 import * as THREE from "three";
-import { NIGHT_SECONDS, NIGHT_START_MIN, NIGHT_END_MIN, MIDNIGHT_MIN, FIRE, WIND, CAMPER, BEAR, PLAYER, LAYOUT, POWERUPS, EVENTS, HOT_LEVELS, SMOKE, DIFFICULTY, HINTS, PHONE_FOLLOW, KEG, HEAT, HEADLAMP, TRUCK } from "./config.js?v=144";
-import { initSound, coyoteYip, whoosh, growl, bang, startCrackle, setCrackle, footstep, logLand, pokeSound, buzz, playIntroThenLoop, startLoop, stopMusic, playDawn, toggleMusic, musicEnabled, musicActive, bearTheme, bearRideTheme, bearWomp, duckMusic, hissSteam, truckRumble, truckDoorThunk } from "./sound.js?v=144";
-import { campers as roster, pickPlayer, commitPick, snacks, emotes, comments, coolerComments, kegCheers, kegFireYell } from "./campers.js?v=144";
-import { buildWorld, makeCamperMesh, makeChairMesh, makeLogMesh, makePalletMesh, setSeated, stepWalkCycle, stepBearWalk, SEATED_DROP, setExpression } from "./world.js?v=144";
-import { buildMiniKeg, buildGuitar, buildTrumpet, buildBourbonGlass, buildYogurtCup, buildCheesePuffsBag, buildCoffeeMug, buildWaterSkis, buildFlightHelmet, buildCornholeSet, buildYetiTumbler, buildSpoon } from "./props.js?v=144";
-import { buildPickupTruck, TRUCK_GEOM } from "./truck.js?v=144";
-import { updateFireVisuals } from "./fire.js?v=144";
-import { initShareCardButtons } from "./sharecard.js?v=144";
+import { NIGHT_SECONDS, NIGHT_START_MIN, NIGHT_END_MIN, MIDNIGHT_MIN, FIRE, WIND, CAMPER, BEAR, PLAYER, LAYOUT, POWERUPS, EVENTS, HOT_LEVELS, SMOKE, DIFFICULTY, HINTS, PHONE_FOLLOW, KEG, HEAT, HEADLAMP, TRUCK } from "./config.js?v=146";
+import { initSound, coyoteYip, whoosh, growl, bang, startCrackle, setCrackle, footstep, logLand, pokeSound, buzz, playIntroThenLoop, startLoop, stopMusic, playDawn, toggleMusic, musicEnabled, musicActive, bearTheme, bearRideTheme, bearWomp, duckMusic, hissSteam, truckRumble, truckDoorThunk } from "./sound.js?v=146";
+import { campers as roster, pickPlayer, commitPick, snacks, emotes, comments, coolerComments, kegCheers, kegFireYell } from "./campers.js?v=146";
+import { buildWorld, makeCamperMesh, makeChairMesh, makeLogMesh, makePalletMesh, setSeated, stepWalkCycle, stepBearWalk, SEATED_DROP, setExpression } from "./world.js?v=146";
+import { buildMiniKeg, buildGuitar, buildTrumpet, buildBourbonGlass, buildYogurtCup, buildCheesePuffsBag, buildCoffeeMug, buildWaterSkis, buildFlightHelmet, buildCornholeSet, buildYetiTumbler, buildSpoon } from "./props.js?v=146";
+import { buildPickupTruck, TRUCK_GEOM } from "./truck.js?v=146";
+import { updateFireVisuals } from "./fire.js?v=146";
+import { initShareCardButtons } from "./sharecard.js?v=146";
 
 const canvas = document.getElementById("scene");
 const world = buildWorld(canvas);
@@ -1311,21 +1311,28 @@ function animateEmote(pl, t) {
         bag.visible = true;
       }
       break; }
-    case "spitty": { // Yogurt Spoon: spoon dips into the cup (left hand, steady), then
-      // rises to the mouth, repeat (Bryan 09/27: hold both the cup and a separate spoon).
-      const k = (t * 0.9) % 1;
-      let raise; // 0 at the cup -> 1 at the mouth -> 0
-      if (k < 0.4) raise = 0;
-      else if (k < 0.55) raise = (k - 0.4) / 0.15;
-      else if (k < 0.85) raise = 1;
-      else raise = 1 - (k - 0.85) / 0.15;
+    case "spitty": { // Yogurt Spoon (Bryan 09/27): cup steady in the left hand, the
+      // spoon held up bowl-first and waved in the air with the right.
+      const w = Math.sin(t * 6);
       p.armL.rotation.x = -1.3; p.armL.rotation.z = 0.35;   // yogurt cup, steady
-      p.armR.rotation.x = -0.4 - raise * 1.3; p.armR.rotation.z = -0.3;
-      if (p.elbowR) p.elbowR.rotation.x = -0.25 - raise * 0.35;
-      p.head.rotation.x = -0.1 - raise * 0.2;
+      p.armR.rotation.x = -2.3; p.armR.rotation.z = 0.45 + w * 0.3;   // out to his side, clear of his face
+      if (p.elbowR) p.elbowR.rotation.x = -0.35 + w * 0.2;
+      p.head.rotation.x = -0.2; p.head.rotation.z = w * 0.08;
       m.position.y = bob;
       if (pl.heldProp) pl.heldProp.visible = true;
-      if (pl.spoonProp) pl.spoonProp.visible = true;
+      const spoon = pl.spoonProp;
+      if (spoon) {
+        // Bowl up in the world whatever the arm does, rocking with the wave;
+        // seated in the fist and nudged toward the camera so the hand never hides it.
+        m.updateMatrixWorld(true);
+        const parentQ = spoon.parent.getWorldQuaternion(new THREE.Quaternion());
+        const want = m.getWorldQuaternion(new THREE.Quaternion()).multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, -w * 0.45)));
+        spoon.quaternion.copy(parentQ.invert().multiply(want));
+        const grip = spoon.parent.localToWorld(new THREE.Vector3(0, -0.27, 0)).add(new THREE.Vector3(0, -0.05, 0.09));
+        spoon.position.copy(spoon.parent.worldToLocal(grip));
+        spoon.scale.setScalar(1.7);   // big enough to read at lobby distance
+        spoon.visible = true;
+      }
       break; }
     case "razoo": // trumpet solo: both arms up front, lean back, bounce
       p.armL.rotation.x = -1.6; p.armR.rotation.x = -1.5; p.armL.rotation.z = 0.25; p.armR.rotation.z = -0.25;
