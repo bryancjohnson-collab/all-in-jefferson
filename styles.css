@@ -43,6 +43,7 @@ html, body { margin: 0; height: 100%; background: #0b1020; color: #f3e9d2; font-
 .bubble { position: absolute; transform: translate(-50%, -100%); background: #fff8ea; color: #1a1a1a; border-radius: 12px; padding: 6px 10px; font-size: 13px; font-weight: 700; max-width: 220px; text-align: center; white-space: normal; box-shadow: 0 3px 0 rgba(0,0,0,0.3); }
 .bubble::after { content: ""; position: absolute; left: 50%; bottom: -8px; margin-left: -6px; border: 6px solid transparent; border-top-color: #fff8ea; border-bottom: 0; }
 .bubble.cold { background: #cfe3ff; }
+.bubble.hot { background: #ffd7a8; }
 .bubble.leaving { background: #ffd0d0; }
 
 .overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(5, 8, 18, 0.78); z-index: 10; }
@@ -63,10 +64,29 @@ html, body { margin: 0; height: 100%; background: #0b1020; color: #f3e9d2; font-
 #save-card-btn:hover, #share-card-btn:hover { background: #1e2c4d; }
 #share-card-btn[hidden] { display: none; }
 
+/* The end card never scrolls as a whole: the results scroll inside it and the
+   buttons stay pinned on screen. dvh is the visible height on phones (vh counts
+   the space under Safari's toolbars, which pushed the buttons off the bottom). */
+#end .card {
+  display: flex; flex-direction: column;
+  max-height: calc(100vh - 24px);
+  max-height: calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  overflow: hidden;
+}
+#end-title { flex: none; }
+#end-body {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 22px), transparent);
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 22px), transparent);
+  padding-bottom: 14px;
+}
+#end .end-actions { flex: none; }
+
 /* Landscape phone (844x390 and similar): tighten the card so the title, lists and
    the new button row all fit without the page itself needing to scroll. */
 @media (max-height: 420px) {
-  .card { padding: 14px 18px; max-height: 96vh; }
+  .card { padding: 14px 18px; max-height: 96vh; max-height: 96dvh; }
+  #end .card { padding: 10px 16px; max-width: min(640px, 92vw); }
   .card h1 { font-size: 22px; margin-bottom: 6px; }
   .card ul { font-size: 13px; margin: 4px auto; }
   .card p { margin: 6px 0; font-size: 13px; }
@@ -110,11 +130,23 @@ html, body { margin: 0; height: 100%; background: #0b1020; color: #f3e9d2; font-
 .lobby-quote { margin-top: 2px; font-size: 16px; font-style: italic; color: #f3e9d2; text-shadow: 0 1px 3px #000; max-width: 420px; }
 .lobby-emote { margin-top: 6px; font-size: 12px; letter-spacing: 0.25em; color: rgba(243,233,210,0.75); text-shadow: 0 1px 2px #000; }
 @keyframes namePop { from { transform: translateX(-30px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
-.lobby-bottom { position: absolute; left: 0; right: 0; bottom: 3vh; text-align: center; }
-.lobby-bottom .title-start { animation: none; opacity: 1; margin-top: 8px; }
+/* Same edge-to-edge invisible-box problem as .lobby-rows below: .lobby-bottom
+   itself spans left:0/right:0, so its own empty margins were the next thing
+   swallowing the arrow taps once .lobby-rows stopped. pointer-events:none
+   here, auto again on the actual button/rows inside. */
+.lobby-bottom { position: absolute; left: 0; right: 0; bottom: 3vh; text-align: center; pointer-events: none; }
+.lobby-bottom .title-start { animation: none; opacity: 1; margin-top: 8px; pointer-events: auto; }
 .lobby-bottom .title-help { animation: none; opacity: 1; font-size: 13px; }
-.lobby-rows { display: flex; justify-content: center; align-items: stretch; gap: 22px; flex-wrap: wrap; margin: 0 auto 6px; }
-.lobby-row { display: flex; flex-direction: column; background: rgba(10,16,32,0.72); border: 2px solid rgba(243,233,210,0.25); border-radius: 12px; padding: 10px 16px 12px; }
+/* .lobby-rows itself is an unstyled flex container: as a block box with no
+   explicit width it stretches edge to edge inside .lobby-bottom (left:0;
+   right:0), even though its visible children stay centered. On a short
+   screen the arrows' vertical center lands inside that full-width strip, so
+   its invisible margins swallow taps meant for the arrow buttons underneath.
+   pointer-events:none here (re-enabled on the visible .lobby-row panels)
+   makes only the actual boxes clickable, which is what it looked like on
+   every device anyway. Fixes the phone "arrows don't respond" bug. */
+.lobby-rows { display: flex; justify-content: center; align-items: stretch; gap: 22px; flex-wrap: wrap; margin: 0 auto 6px; pointer-events: none; }
+.lobby-row { display: flex; flex-direction: column; background: rgba(10,16,32,0.72); border: 2px solid rgba(243,233,210,0.25); border-radius: 12px; padding: 10px 16px 12px; pointer-events: auto; }
 .lobby-row > .pick, .lobby-row > .diff { flex: 1; align-content: center; align-items: center; }
 .row-label { font-family: "Luckiest Guy", "Trebuchet MS", sans-serif; font-size: 20px; letter-spacing: 0.1em; color: #ffd98a; text-align: left; margin-bottom: 8px; text-shadow: 0 2px 0 #000; }
 .row-sub { font: 400 11px "Trebuchet MS", sans-serif; letter-spacing: 0.04em; color: rgba(243,233,210,0.7); margin-left: 6px; }
@@ -184,9 +216,35 @@ body.touch .pause-btn {
 body.touch .hud-top { top: env(safe-area-inset-top); align-items: center; }
 body.touch .hud-top { padding-right: max(14px, env(safe-area-inset-right)); }
 body.touch .title-panel { display: none; }
-body.touch .meter-panel { width: auto; flex: 1; height: 38px; padding: 4px 10px; }
-body.touch .meter-panel .label { font-size: 9px; letter-spacing: 1.5px; margin: 0 0 2px 1px; }
-body.touch .meter { height: 9px; border-radius: 5px; margin-top: 0; }
+/* Fire meter moves off the top strip entirely (Bryan 09/26: it clipped camper
+   lines in the speech strip underneath it) to a vertical bar down the left
+   edge instead. Taking .meter-panel out of the .hud-top flex row like this
+   is what frees the whole top strip for the speech strip; pause button and
+   clock chip now share it alone. The DOM and the JS that drives the meter
+   (#fire-fill's width%, #fire-label's text, the .hot/.low fill classes, the
+   .hot-line marker) are untouched -- this is the same bar, just moved and
+   rotated on-screen, so hot/low colors and the Hell's Anus tier text still
+   come from the exact same logic as the desktop horizontal meter. */
+body.touch .hud-top > .meter-panel {
+  position: fixed;
+  left: max(4px, env(safe-area-inset-left));
+  top: calc(env(safe-area-inset-top) + 56px);
+  width: 74px;
+  height: 202px;
+  padding: 0;
+  pointer-events: none;   /* never steal a stick touch landing near the edge */
+  z-index: 2;
+}
+body.touch .meter-panel .label {
+  position: absolute; top: 0; left: 0; right: 0;
+  font-size: 9px; letter-spacing: 0.06em; line-height: 1.2; text-align: center;
+}
+body.touch .meter-panel .meter {
+  position: absolute; left: 50%; top: 122px;
+  width: 150px; height: 16px; margin: -8px 0 0 -75px;
+  border-radius: 8px;
+  transform: rotate(-90deg);   /* 0% (empty) at the bottom, 100% (max) at the top */
+}
 body.touch .clock-panel { height: 38px; padding: 3px 10px; min-width: 0; margin-right: env(safe-area-inset-right); }
 body.touch .clock { font-size: 16px; }
 body.touch .sub { font-size: 8px; }
@@ -236,9 +294,11 @@ body.touch .action-btn {
 body.touch .action-btn.idle { opacity: 0.4; }
 body.touch.swap-controls .action-btn { right: auto; left: max(26px, env(safe-area-inset-left)); }
 body.touch .touch-stats {
-  /* top-left under the pause button, out of the play area (the bottom corner hid the poker and wood pile) */
+  /* Top-left under the pause button, out of the play area (the bottom corner
+     hid the poker and wood pile). Shifted right of the vertical fire meter's
+     column (that bar now runs left:4px to ~78px) so the two never overlap. */
   display: flex; flex-direction: row; gap: 6px;
-  position: absolute; left: max(16px, env(safe-area-inset-left));
+  position: absolute; left: max(88px, calc(env(safe-area-inset-left) + 88px));
   top: calc(env(safe-area-inset-top) + 58px);
   z-index: 3; pointer-events: none;
 }
@@ -369,18 +429,29 @@ body.touch .lobby-card { left: max(12vw, env(safe-area-inset-left)); }
   /* Name/quote/emote flavor text collides with the picker panel at this height;
      the picker's own highlighted chip already shows who is selected. */
   body.touch .lobby-card { display: none; }
-  body.touch .lobby-rows { gap: 10px; margin-bottom: 2px; }
-  body.touch .lobby-row { padding: 6px 10px 8px; }
-  body.touch .row-label { font-size: 14px; margin-bottom: 4px; }
-  body.touch .pick { gap: 3px; max-width: 60vw; }
-  body.touch .pick-btn { font-size: 11px; padding: 3px 6px; }
-  body.touch .diff-btn { min-width: 84px; font-size: 11px; padding: 4px 6px; }
-  body.touch .diff-btn span { font-size: 9px; }
+  /* Bryan 09/26 (docs/mockups/bryan-lobby-overlap-0926.webp): on a landscape
+     phone the picker and difficulty panels sat right over the showcase
+     camper's chest and legs. There isn't room to stack them above a
+     bottom-anchored button and still clear the standing figure, so on this
+     breakpoint they go side by side in one slim row (nowrap) instead of
+     wrapping to two, and hug the very bottom edge; the START button moves
+     into the same row so the whole control strip is one compact band under
+     the camper's feet instead of a tall block across the middle. */
+  body.touch .lobby-rows { flex-wrap: nowrap; gap: 8px; margin: 0; align-items: stretch; }
+  body.touch .lobby-row { padding: 3px 8px 4px; }
+  body.touch .row-label { font-size: 10px; margin-bottom: 2px; }
+  body.touch .row-sub { display: none; }
+  body.touch .pick { gap: 2px; max-width: 46vw; }
+  body.touch .pick-btn { font-size: 8px; padding: 2px 4px; gap: 3px; }
+  body.touch .pick-btn .sw { width: 6px; height: 6px; }
+  body.touch .diff { gap: 4px; }
+  body.touch .diff-btn { min-width: 50px; font-size: 8px; padding: 2px 4px; gap: 0; }
+  body.touch .diff-btn span { display: none; }
   body.touch .lobby-name { font-size: 30px; }
   body.touch .lobby-quote { font-size: 12px; max-width: 260px; }
   body.touch .lobby-card { top: 46%; left: 8vw; max-width: 40vw; }
-  body.touch .lobby-bottom { bottom: 1vh; }
-  body.touch .lobby-bottom .title-start { font-size: 15px; padding: 8px 16px; }
+  body.touch .lobby-bottom { bottom: max(2px, env(safe-area-inset-bottom)); display: flex; align-items: center; justify-content: center; gap: 10px; }
+  body.touch .lobby-bottom .title-start { font-size: 11px; padding: 5px 10px; margin: 0; white-space: nowrap; }
   body.touch .lobby-top { top: 2px; }
   body.touch .lobby-logo { height: 46px; }
   body.touch .lobby-heading { font-size: 16px; margin-top: 0; }

@@ -26,19 +26,28 @@ export const FIRE = {
   spreadBonus: 1.15,
 };
 
-// Difficulty presets picked in the lobby. Everything else stays the same.
-// CAMP retuned 09/26 with the fixed (sector-rotating) bot: burn 1.6 -> 2.05 so a
-// tryhard (Bryan's own level) keeps about 5 of 9, not 6-7, and a decent player
-// keeps about 3. Wood (16) and gas (3) left alone; burn is doing the work.
-// A tryhard's fire still dies more often than we'd like at this burn
-// (~1 in 4 runs, wanted rare); could not find a wood/gas/burn combo that both
-// kept the mean near 5 and kept fire-death rare, since this bot is bimodal:
-// once it's coping it usually keeps 7-9, so hitting mean 5 means some real
-// share of runs collapsing outright. See HANDOFF.md.
+// Difficulty presets picked in the lobby. Everything else stays the same. Internal
+// keys (easy/camp/hell) are unchanged so localStorage and leaderboard entries from
+// before the 09/26 rename still resolve; only the display `name` changed, to EASY /
+// NORMAL / HARD (Bryan, 09/26: make the three levels read and play as Easy/Normal/
+// Hard; Hell's Anus the fire zone keeps its own name regardless of difficulty).
+// Retuned 09/26 for the rename, bot-tested at skills 0.25/0.6/0.9 per level (full
+// table and bot output in DESIGN.md). Burn now climbs cleanly EASY 1.0 < NORMAL
+// 1.65 < HARD 1.95, fixing the old label mismatch where HELL'S (1.85) actually
+// burned slower than CAMP (2.05) despite calling itself the fast burn. EASY's
+// wood/burn were both eased (22/1.35 -> 24/1.0): even the "distracted" skill-0.25
+// bot was losing the fire about half the time on the old numbers, nowhere near
+// "rarely." NORMAL eased 2.05 -> 1.65 so skill 0.6 lands at mean ~5-6 kept (was
+// ~2.8) with fewer total collapses. HARD's wood nudged 12 -> 14 and burn raised
+// to 1.95 so skill 0.9 centers on mean ~5-6 kept with fire dying "sometimes"
+// (roughly 4 in 10) instead of the ~70-100% collapse rate earlier passes hit at
+// wood 12-13 — this bot is sharply bimodal (see HANDOFF.md), so a single log of
+// pile size swings the death rate by 40+ points; 14 was the seed that landed in
+// band without flattening it back to "never dies."
 export const DIFFICULTY = {
-  easy: { name: "EASY", wood: 22, gas: 4, burn: 1.35, blurb: "Big pile, extra gas, slow burn." },
-  camp: { name: "CAMP", wood: 16, gas: 3, burn: 2.05, blurb: "The real thing." },
-  hell: { name: "HELL'S", wood: 12, gas: 2, burn: 1.85, blurb: "Short pile, two gas, fast burn. Good luck." },
+  easy: { name: "EASY", wood: 24, gas: 4, burn: 1.0, blurb: "Big pile, extra gas, slow burn." },
+  camp: { name: "NORMAL", wood: 16, gas: 3, burn: 1.65, blurb: "The real thing." },
+  hell: { name: "HARD", wood: 14, gas: 2, burn: 1.95, blurb: "Short pile, two gas, the fastest burn. Good luck." },
 };
 
 // One-time power-ups, earned once per night.
@@ -150,6 +159,50 @@ export const PLAYER = {
   reachTouchStick: 3.0,
   minRadius: 1.3,
   maxRadius: 7.2,
+};
+
+// Don M's mini keg (Bryan, 09/26: replaces the log he used to hand out). Pours are
+// a limited resource (about 5 liters, one pour per camper) rather than a wood
+// source, so this does not feed the fire economy the way his log did; DIFFICULTY
+// was retuned to account for that (see the comment on DIFFICULTY above).
+export const KEG = {
+  pours: 5,
+  comfortBoost: 26,
+  chillMultiplier: 0.6,   // a topped-off camper cools slower for the rest of the night ("stays longer")
+  cheerSeconds: 4,
+  fireDip: 55,            // the trap: dumping it on the fire knocks the flames down hard
+  steamSeconds: 2.6,
+};
+
+// Overheat (Bryan, 09/26: standing too close to the fire at the hotter levels for
+// too long makes you overheat). Only builds while at the fire AND state.fire.hot is
+// true, i.e. strictly above FIRE.hot (Hell's Anus) — it must never trigger at normal
+// fire levels. tierBoost scales the build rate up per Hell's Anus tier so tier II/III
+// bite faster than tier I. Cools fast (coolPerSec) the moment either condition drops.
+export const HEAT = {
+  buildPerSec: 16,
+  tierBoost: 0.25,
+  coolPerSec: 46,
+  max: 100,
+  forceBackAt: 100,
+  recoverAt: 20,       // must cool back down to this before fire actions unblock
+  pushSpeed: 3.2,       // how fast the game nudges an overheated player back from the fire
+  pushClear: 1.4,       // how far past the normal reach the push aims for
+};
+
+// Headlamp (Bryan, 09/26: fire gets low, camp goes dark, player gets a headlamp).
+// One THREE.SpotLight on the player, faded in by fire level alone (phone camera
+// numbers are off limits for this pass, so nothing here touches PHONE_FOLLOW/camera).
+// Intensity looks small next to FIRE's numbers, but three r160's lighting is
+// physically based (candela units), same as fireLight/keyLight in world.js/game.js
+// which run into the tens-to-hundreds — a pre-r155-style "2.4" is invisible here.
+export const HEADLAMP = {
+  threshold: 25,   // raw fire level where it starts fading in
+  fadeRange: 14,    // fully on by threshold - fadeRange (~11)
+  intensity: 50,
+  angle: 0.3,
+  penumbra: 0.4,
+  distance: 7.5,
 };
 
 // Phone-only gentle camera follow (Bryan: "cam in a little", then a follow so the

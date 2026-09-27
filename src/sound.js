@@ -154,11 +154,21 @@ export function buzz(seconds) {
 // ---------- Music: a campfire tune, synthesized ----------
 // A strummed riff for the lobby, a quiet loop for the night, a sting for dawn. M toggles it.
 const NOTE = (n) => 440 * Math.pow(2, (n - 69) / 12);   // MIDI to Hz
-const music = { on: true, master: null, timer: null, nextBeat: 0, beat: 0, mode: null, pass: 0, fadeTarget: 1 };
+const music = { on: true, master: null, timer: null, nextBeat: 0, beat: 0, mode: null, pass: 0, fadeTarget: 1, introEndsAt: 0 };
 try { music.on = localStorage.getItem("aij-music") !== "off"; } catch (e) { /* ignore */ }
 export function musicEnabled() { return music.on; }
-// Dev handle: lets a tuning script confirm the scheduler is running
-window.__music = { get state() { return { mode: music.mode, beat: music.beat, pass: music.pass, on: music.on, ctx: ctx && ctx.state, master: music.master && music.master.gain.value }; } };
+// True once the scheduler has anything going (intro, loop, or dawn). Lets the
+// title-screen and lobby hooks avoid ever starting a second one on top.
+export function musicActive() { return !!music.mode; }
+// Dev handle: lets a tuning script confirm the scheduler is running. Reports
+// "intro" while the title-screen pickup is still ringing (mode is already
+// "loop" internally the whole time, so a second startLoop() call during the
+// intro is still correctly ignored) and "loop" once the loop's own first beat
+// has actually started.
+window.__music = { get state() {
+  const inIntro = music.mode === "loop" && ctx && ctx.currentTime < music.introEndsAt;
+  return { mode: inIntro ? "intro" : music.mode, beat: music.beat, pass: music.pass, on: music.on, ctx: ctx && ctx.state, master: music.master && music.master.gain.value };
+} };
 export function toggleMusic() {
   music.on = !music.on;
   try { localStorage.setItem("aij-music", music.on ? "on" : "off"); } catch (e) { /* ignore */ }
@@ -203,6 +213,32 @@ export function playRiff() {
   strum(CH.G, t0 + 7.8 * b, 0.11, 0.06); pad([67, 71, 74, 79], t0 + 7.8 * b, 3.2, 0.05); bass(43, t0 + 7.8 * b, 3, 0.18);
 }
 
+// The title-screen intro: the very first sound of the game, played once on the
+// player's first touch/pointer/key press on the title screen. Same key (G),
+// tempo (84 bpm) and instruments (pluck/bass/strum) as the lobby riff above, so
+// it reads as one song, not two: a low G pedal under a climbing arpeggio (bar 1,
+// the pickup), then G and D chords strummed twice as fast into the same rising
+// run the riff uses (bar 2, the build). It is timed to the loop's own beat grid
+// (8 beats, ~5.7s) so its last note resolves right as the loop's first beat
+// begins: no gap, and no note is ever played twice at the handoff.
+export function playIntroThenLoop() {
+  if (!ctx || !ensureMaster() || music.mode) return;   // mode is only ever set once something (intro/loop/dawn) is already going; never stack a second start on top
+  const t0 = ctx.currentTime + 0.05, b = 60 / 84;
+  // Bar 1: the pickup. G1 pedal under a climbing G-major arpeggio (G4 B4 D5 G5).
+  bass(31, t0, b * 4, 0.14);
+  [55, 59, 62, 67].forEach((m, i) => pluck(m + 12, t0 + i * b, b * 0.95, 0.06 + i * 0.01));
+  // Bar 2: the build. G then D strummed at double speed (a dominant lean into the
+  // loop's opening G), then the same ascending run the riff opens with, landing
+  // its last note right on the loop's downbeat.
+  strum(CH.G, t0 + 4 * b, 0.09, 0.03);
+  strum(CH.D, t0 + 5 * b, 0.09, 0.03);
+  const run = [62, 64, 66, 67, 69, 71, 74];
+  run.forEach((m, i) => pluck(m + 12, t0 + 6 * b + i * b * 0.25, 0.5, 0.08));
+  const introBeats = 8, loopStart = t0 + introBeats * b;
+  music.introEndsAt = loopStart;
+  startLoop(loopStart);
+}
+
 // The night loop: 8-bar arpeggio over G / Em / C / D, melody on alternate passes, a rest bar so it breathes
 const LOOP = ["G", "G", "Em", "Em", "C", "C", "D", "D"];
 const MEL_A = [null, 74, 71, null, 69, null, 67, 66, null, 64, null, 62, null, null, null, null];   // 16 steps over bars 5-8
@@ -221,9 +257,19 @@ function scheduleBeat(beatIndex, t) {
   }
   if (beatIndex % 32 === 31) music.pass += 1;
 }
-export function startLoop() {
+// `startAt` (an AudioContext time) lets playIntroThenLoop() below hand off to the
+// loop's exact first beat with no gap; omit it to start on the next tick as before.
+// The music.mode === "loop" guard is what makes every later call (startNight()'s
+// own startLoop(), or a second gesture on the title screen) a safe no-op instead
+// of a restart or a duplicate scheduler.
+export function startLoop(startAt) {
   if (!ctx || !ensureMaster() || music.mode === "loop") return;
-  music.mode = "loop"; music.beat = 0; music.pass = 0; music.nextBeat = ctx.currentTime + 0.1;
+  // No startAt means nothing is winding into this call, so clear any stale
+  // introEndsAt left over from an earlier intro (otherwise the __music.state
+  // "intro" label could wrongly reappear if ctx.currentTime happens to still be
+  // behind that old timestamp when this fresh loop begins).
+  if (startAt == null) music.introEndsAt = 0;
+  music.mode = "loop"; music.beat = 0; music.pass = 0; music.nextBeat = startAt != null ? startAt : ctx.currentTime + 0.1;
   clearInterval(music.timer);
   music.timer = setInterval(() => {
     const b = 60 / 84;
@@ -292,4 +338,20 @@ export function bearWomp() {
     o.connect(f).connect(g).connect(ctx.destination); o.start(t); o.stop(t + dur + 0.05);
   };
   slide(45, 43, t0, 0.55); slide(43, 40, t0 + 0.65, 0.9);
+}
+
+// Keg dumped on the fire (Bryan, 09/26: it's a trap): a wet hiss and steam burst,
+// pitch falling off as it settles.
+export function hissSteam() {
+  if (!ctx) return;
+  const t0 = ctx.currentTime;
+  const len = Math.floor(ctx.sampleRate * 1.1);
+  const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 0.6);
+  const src = ctx.createBufferSource(); src.buffer = buf;
+  const f = ctx.createBiquadFilter(); f.type = "bandpass";
+  f.frequency.setValueAtTime(3600, t0); f.frequency.exponentialRampToValueAtTime(900, t0 + 1.0); f.Q.value = 0.8;
+  const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(0.4, t0 + 0.05); g.gain.exponentialRampToValueAtTime(0.0001, t0 + 1.05);
+  src.connect(f).connect(g).connect(ctx.destination); src.start(t0);
 }

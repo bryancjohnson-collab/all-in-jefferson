@@ -1,11 +1,12 @@
 // All In Jefferson, prototype 1: the fire loop on a flat plane with box campers.
 import * as THREE from "three";
-import { NIGHT_SECONDS, NIGHT_START_MIN, NIGHT_END_MIN, MIDNIGHT_MIN, FIRE, WIND, CAMPER, BEAR, PLAYER, LAYOUT, POWERUPS, EVENTS, HOT_LEVELS, SMOKE, DIFFICULTY, HINTS, PHONE_FOLLOW } from "./config.js?v=120";
-import { initSound, coyoteYip, whoosh, growl, bang, startCrackle, setCrackle, footstep, logLand, pokeSound, buzz, playRiff, startLoop, stopMusic, playDawn, toggleMusic, musicEnabled, bearTheme, bearRideTheme, bearWomp, duckMusic } from "./sound.js?v=120";
-import { campers as roster, pickPlayer, commitPick, snacks, emotes, comments, coolerComments } from "./campers.js?v=120";
-import { buildWorld, makeCamperMesh, makeChairMesh, makeLogMesh, setSeated, stepWalkCycle, stepBearWalk, SEATED_DROP } from "./world.js?v=120";
-import { updateFireVisuals } from "./fire.js?v=120";
-import { initShareCardButtons } from "./sharecard.js?v=120";
+import { NIGHT_SECONDS, NIGHT_START_MIN, NIGHT_END_MIN, MIDNIGHT_MIN, FIRE, WIND, CAMPER, BEAR, PLAYER, LAYOUT, POWERUPS, EVENTS, HOT_LEVELS, SMOKE, DIFFICULTY, HINTS, PHONE_FOLLOW, KEG, HEAT, HEADLAMP } from "./config.js?v=125";
+import { initSound, coyoteYip, whoosh, growl, bang, startCrackle, setCrackle, footstep, logLand, pokeSound, buzz, playIntroThenLoop, startLoop, stopMusic, playDawn, toggleMusic, musicEnabled, musicActive, bearTheme, bearRideTheme, bearWomp, duckMusic, hissSteam } from "./sound.js?v=125";
+import { campers as roster, pickPlayer, commitPick, snacks, emotes, comments, coolerComments, kegCheers, kegFireYell } from "./campers.js?v=125";
+import { buildWorld, makeCamperMesh, makeChairMesh, makeLogMesh, setSeated, stepWalkCycle, stepBearWalk, SEATED_DROP } from "./world.js?v=125";
+import { buildMiniKeg } from "./props.js?v=125";
+import { updateFireVisuals } from "./fire.js?v=125";
+import { initShareCardButtons } from "./sharecard.js?v=125";
 
 const canvas = document.getElementById("scene");
 const world = buildWorld(canvas);
@@ -41,6 +42,32 @@ actionRing.rotation.x = Math.PI / 2;
 actionRing.position.y = 0.05;
 actionRing.visible = false;
 scene.add(actionRing);
+
+// Headlamp (Bryan, 09/26): one SpotLight on the player, faded in as the fire drops
+// toward dark. Kept at scene scope (not a child of player.mesh, which is rebuilt
+// whenever a different camper is picked) so it survives a re-pick untouched; its
+// position/target are copied from the player each frame in updateHeadlamp() below.
+// No shadows (a second shadow-casting light is not worth it on a phone).
+const headlampLight = new THREE.SpotLight("#dce8ff", 0, HEADLAMP.distance, HEADLAMP.angle, HEADLAMP.penumbra, 1.4);
+headlampLight.castShadow = false;
+const headlampTarget = new THREE.Object3D();
+headlampLight.target = headlampTarget;
+scene.add(headlampLight, headlampTarget);
+
+// Overheat gauge (Bryan, 09/26): a small two-sprite bar that floats over the
+// player's head, visible only once heat starts building. Sprites always face the
+// camera and need no per-frame texture work, just position/scale, so this is cheap.
+function makeBarSprite(color, w, h) {
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ color, transparent: true, opacity: 0.95, depthTest: false }));
+  s.scale.set(w, h, 1);
+  return s;
+}
+const HEAT_BAR_W = 0.58;
+const heatBarBack = makeBarSprite("#241a14", HEAT_BAR_W + 0.05, 0.11);
+const heatBarFill = makeBarSprite("#ffcf3c", HEAT_BAR_W, 0.07);
+heatBarBack.renderOrder = 20; heatBarFill.renderOrder = 21;
+heatBarBack.visible = heatBarFill.visible = false;
+scene.add(heatBarBack, heatBarFill);
 
 const ui = {
   fireFill: document.getElementById("fire-fill"),
@@ -131,7 +158,14 @@ const state = {
   // bottle never leaves his hand. Once a night, no gameplay effect.
   glass: { at: glassAt, phase: "pending", t: 0, tosser: null },
   shake: 0,
-  don: { mesh: null, bubble: { text: "", until: 0, cls: "" }, gaveLog: false },
+  don: { mesh: null, bubble: { text: "", until: 0, cls: "" }, gaveKeg: false },
+  // Don M's mini keg (Bryan, 09/26; replaces the log). pours counts down as the
+  // player tops off campers; steamUntil forces a visible steam burst when it goes
+  // in the fire instead, even if that leaves fire.level at 0 (see updateSmoke).
+  keg: { pours: 0, steamUntil: 0 },
+  // Overheat (Bryan, 09/26): builds only at the fire while it's in Hell's Anus,
+  // never below the hot line. forced blocks fire actions until it cools back down.
+  heat: { level: 0, forced: false },
   smoke: { inIt: false, coughIn: 0 },
   sky: { kind: null, t: 0, nextIn: rand(EVENTS.skyMinGap, EVENTS.skyMaxGap) },
   pokeAnim: 0,
@@ -214,6 +248,27 @@ function tryRequestFullscreen() {
 // after that (cheap no-op once already full screen), which is what makes the
 // "re-request after it drops" behavior work without any extra bookkeeping.
 window.addEventListener("pointerdown", tryRequestFullscreen, { capture: true, passive: true });
+
+// Music on the title screen (Bryan 09/26: today it starts in the lobby after the
+// first click; browsers block all audio until a real user gesture, so the first
+// gesture anywhere on the title screen is that unlock). Runs once per page load:
+// the guard is titleMusicStarted, not state.phase, because by the time a touch or
+// keydown handler actually calls this, the SAME gesture may already have moved
+// state.phase on to "select" (see the keydown listener below, where this is
+// called before that happens deliberately so the phase check here still sees
+// "start"). If the player has muted the music (musicEnabled() false, whether from
+// a previous session or from an M press caught by the keydown listener before
+// this runs), initSound() still primes the AudioContext on this gesture so a
+// later M press can unmute instantly, but nothing is scheduled to play.
+let titleMusicStarted = false;
+function maybeStartTitleMusic() {
+  if (titleMusicStarted || state.phase !== "start") return;
+  titleMusicStarted = true;
+  initSound();
+  if (musicEnabled()) { playIntroThenLoop(); ui.musicChip.textContent = "MUSIC ON  (M)"; }
+}
+window.addEventListener("pointerdown", maybeStartTitleMusic, { capture: true, passive: true });
+window.addEventListener("touchstart", maybeStartTitleMusic, { capture: true, passive: true });
 
 // One-time iPhone Safari tip (docs/PHONE.md follow-up): since Safari can't go
 // full screen on its own, point at Hide Toolbar / Add to Home Screen instead.
@@ -348,6 +403,7 @@ function buildCrew(data) {
       state: cd.arrivesAtMidnight ? "away" : "seated",
       leaveTimer: 0,
       saidCold: false,
+      kegged: false,   // topped off from Don M's keg, once per camper (see findKegTarget)
       walkTarget: null,
       walkTo: i % 2 === 0 ? LAYOUT.cabinDoor : LAYOUT.camperDoor,
       bubble: { text: "", until: 0, cls: "" },
@@ -355,7 +411,7 @@ function buildCrew(data) {
     if (c.state === "away") mesh.visible = false;
     return c;
   });
-  window.__aij = { state, player, campers, keys, renderer, camera, press: () => { spacePressed = true; }, speed: (window.__aij && window.__aij.speed) || 1, cfg: { FIRE, WIND, CAMPER, BEAR, EVENTS, PLAYER, LAYOUT, SMOKE, POWERUPS },
+  window.__aij = { state, player, campers, keys, renderer, camera, press: () => { spacePressed = true; }, speed: (window.__aij && window.__aij.speed) || 1, cfg: { FIRE, WIND, CAMPER, BEAR, EVENTS, PLAYER, LAYOUT, SMOKE, POWERUPS, KEG, HEAT, HEADLAMP, DIFFICULTY },
     // Headless stepping for tuning runs: advances the logic without waiting for animation frames
     step: (dt, n) => { for (let i = 0; i < n && state.phase === "playing"; i++) { update(dt); if (window.__aij.bot) window.__aij.bot(dt); } return state.phase; },
     start: () => { if (state.phase === "start") goToLobby(); if (state.phase === "select") startNight(); return state.phase; } };
@@ -423,7 +479,13 @@ function goToLobby() {
   player.pos.copy(LOBBY_SPOT);
   player.mesh.position.copy(player.pos);
   initSound();
-  playRiff();
+  // The title screen's first gesture (see maybeStartTitleMusic above) has
+  // normally already started the intro-into-loop by the time this runs, since
+  // clicking Start or pressing Space/Enter is itself that first gesture; startLoop
+  // is a no-op once the loop is already going, so this never doubles or restarts
+  // it. The startLoop() call here only matters if the player backed out to the
+  // title screen and is re-entering the lobby with the scheduler stopped.
+  if (musicEnabled() && !musicActive()) startLoop();
   ui.musicChip.textContent = musicEnabled() ? "MUSIC ON  (M)" : "MUSIC OFF  (M)";
 }
 const DIFF_KEY = "aij-diff";
@@ -559,6 +621,10 @@ ui.startBtn.addEventListener("click", goToLobby);
 ui.playBtn.addEventListener("click", startNight);
 window.addEventListener("keydown", (e) => {
   if (e.key.toLowerCase() === "m" && !e.metaKey && !e.ctrlKey) { initSound(); const on = toggleMusic(); ui.musicChip.textContent = on ? "MUSIC ON  (M)" : "MUSIC OFF  (M)"; return; }
+  // Runs before goToLobby() below can move state.phase off "start", and after the
+  // M check above (so an M press as the player's very first key mutes before this
+  // ever tries to start anything, instead of a note sneaking out first).
+  maybeStartTitleMusic();
   if (state.phase === "start" && (e.key === " " || e.key === "Enter")) { e.preventDefault(); goToLobby(); }
   else if (state.phase === "select") {
     if (e.key === " " || e.key === "Enter") { e.preventDefault(); startNight(); }
@@ -581,8 +647,12 @@ const GAME_LOOK = new THREE.Vector3(0, 0, 0);
 // was never doing anything. Verified in the browser that every chair, the fire
 // and every interactable clear the top strip at rest. Keyboard devices never
 // see this (isTouch stays false), so GAME_CAM/GAME_LOOK are untouched.
-const PHONE_CAM = new THREE.Vector3(0, 8.0, 7.6);   // halfway back from (0, 6.55, 5.7): Bryan 09/26, "zoomed in a little too much"
-const PHONE_LOOK = new THREE.Vector3(0, 0, 0.25);
+// Bryan 09/26 (second note, after playing the halfway-back version live): "zoom
+// out a little more than the current live values." A third of the way from the
+// live (0, 8.0, 7.6)/(0, 0, 0.25) toward the older, more zoomed-out (0, 9.5, 9.5)/
+// (0, 0, 0.8) that the halfway point itself was split from.
+const PHONE_CAM = new THREE.Vector3(0, 8.5, 8.23);
+const PHONE_LOOK = new THREE.Vector3(0, 0, 0.43);
 const LOBBY_SPOT = new THREE.Vector3(1.9, 0, 4.3);   // forward of the empty chair so emotes do not clip it (Bryan, 09/25)
 const LOBBY_CAM = new THREE.Vector3(1.0, 2.3, 10.3);   // camera and look moved with the spot, same framing
 const LOBBY_LOOK = new THREE.Vector3(1.4, 1.0, 3.9);
@@ -954,6 +1024,7 @@ function update(dt) {
   state.t += dt;
   updatePlayer(dt);
   updateFire(dt);
+  updateHeat(dt);
   updateWind(dt);
   updateCampers(dt);
   updateEvents(dt);
@@ -1062,6 +1133,8 @@ function updatePlayer(dt) {
   const nearStick = !state.stick.held && distStick < reachStick && distStick <= distWood;
   const nearCooler = dist2(player.pos, LAYOUT.cooler) < reach + 0.2;
   const nearDon = donMesh.visible && !player.carrying && dist2(player.pos, donMesh.position) < reach + 0.6;
+  const kegTarget = player.carrying === "keg" ? findKegTarget(reach) : null;
+  const heatBlocked = state.heat.forced;
   ui.bottle.hidden = !(state.bottle.given && !state.bottle.used);
 
   // Contextual hint, and the action button's label (docs/PHONE.md): built from
@@ -1086,6 +1159,10 @@ function updatePlayer(dt) {
   } else if (player.carrying === "beer") {
     hint = nearFire ? (state.fire.level > FIRE.hot ? "Space: toss the full beer in. It's hot enough." : "Space: toss it in (it needs Hell's Anus to go off)") : "Carry the full beer to the fire. Don't drink it."; label = nearFire ? "TOSS BEER" : "BEER";
     if (nearFire) { targetPos = ORIGIN_XZ; targetRadius = 2.5; targetFollowRadius = 1.3; targetHeight = 1.6; }
+  } else if (player.carrying === "keg") {
+    if (kegTarget) { hint = `Space: top off ${kegTarget.data.name}`; label = "POUR"; targetPos = kegTarget.mesh.position; targetRadius = 0.9; targetFollowRadius = 0.5; targetHeight = 1.7; }
+    else if (nearFire) { hint = "Space: pour it on the fire (bad idea)"; label = "POUR"; targetPos = ORIGIN_XZ; targetRadius = 2.5; targetFollowRadius = 1.3; targetHeight = 1.6; }
+    else { hint = "Carry the keg to a camper and pour"; label = "BEER"; }
   } else if (nearCooler && state.beer.available && !(nearWood && state.wood > 0)) {
     hint = "Space: grab a full, unopened beer"; label = "BEER"; targetPos = LAYOUT.cooler; targetFollowRadius = 0.5; targetHeight = 0.6;
   } else if (nearStick) {
@@ -1097,8 +1174,8 @@ function updatePlayer(dt) {
     hint = state.gas > 0 ? "Space: grab the gas can" : "The gas can is empty"; label = state.gas > 0 ? "GRAB GAS" : "EMPTY";
     if (state.gas > 0) { targetPos = LAYOUT.gasCan; targetFollowRadius = 0.35; targetHeight = 0.8; }
   } else if (nearDon) {
-    hint = state.don.gaveLog ? "Don M has nothing else for you." : "Space: see what Don M wants"; label = "TALK";
-    if (!state.don.gaveLog) { targetPos = donMesh.position; targetRadius = 0.9; targetFollowRadius = 0.5; targetHeight = 1.85; }
+    hint = state.don.gaveKeg ? "Don M has nothing else for you." : "Space: see what Don M wants"; label = "TALK";
+    if (!state.don.gaveKeg) { targetPos = donMesh.position; targetRadius = 0.9; targetFollowRadius = 0.5; targetHeight = 1.85; }
   } else if (nearFire && state.bottle.given && !state.bottle.used) {
     hint = "Space: take a swig and blow it into the fire"; label = "BREATHE FIRE"; targetPos = ORIGIN_XZ; targetRadius = 2.5; targetFollowRadius = 1.3; targetHeight = 1.6;
   } else if (nearFire && !state.stick.held) {
@@ -1107,6 +1184,7 @@ function updatePlayer(dt) {
     hint = state.fire.pokeCd > 0 ? "Poker is hot, wait a second" : "Space: poke the fire"; label = state.fire.pokeCd > 0 ? "WAIT" : "POKE";
     if (state.fire.pokeCd <= 0) { targetPos = ORIGIN_XZ; targetRadius = 2.5; targetFollowRadius = 1.3; targetHeight = 1.6; }
   }
+  if (nearFire && heatBlocked) { hint = "Too hot. Back off and cool down."; label = "TOO HOT"; targetPos = null; }
   if (inSmoke) { hint = "*cough* You can't do anything in the smoke."; label = "COUGH"; targetPos = null; }
   setHint(hint);
   setActionLabel(label);
@@ -1127,14 +1205,16 @@ function updatePlayer(dt) {
   if (!spacePressed) return;
   spacePressed = false;
   if (inSmoke) return;
+  if (nearFire && heatBlocked) return;   // too hot to do anything at the fire right now
 
   if (nearDon) {
-    if (!state.don.gaveLog) {
-      state.don.gaveLog = true;
-      player.carrying = "log"; showCarry("log");
-      bubble(state.don, "Gentlemen. Here.", 4, "");
-      say("Don M hands you a log and goes back to standing there.", 5);
-      state.log.push("Don M gave a log");
+    if (!state.don.gaveKeg) {
+      state.don.gaveKeg = true;
+      state.keg.pours = KEG.pours;
+      player.carrying = "keg"; showCarry("keg");
+      bubble(state.don, "Gentlemen. Here you go.", 4, "");
+      say("Don M hands you a mini keg and goes back to standing there.", 5);
+      state.log.push("Don M gave a keg");
     } else bubble(state.don, "Gentlemen.", 2, "");
     return;
   }
@@ -1187,6 +1267,33 @@ function updatePlayer(dt) {
     state.beer.thrown = true;
     if (state.fire.level > FIRE.hot) { state.beer.fuse = EVENTS.beerFuse; say("Full beer in the fire. Everybody wait for it...", 4); }
     else { state.beer.fuse = 0; say("It just sat there and hissed. Waste of a beer.", 4); state.log.push("Wasted a beer"); }
+  } else if (player.carrying === "keg" && kegTarget) {
+    // Checked before the fire-trap branch below: a chair sits close enough to the
+    // pit that "near a camper" and "near the fire" often overlap (chair radius 3.3
+    // vs. nearFire's ~2.9), so whoever is actually in reach wins. Only an empty
+    // fire pit with nobody in range falls through to the trap.
+    const c = kegTarget;
+    c.kegged = true;
+    c.chill *= KEG.chillMultiplier;
+    c.comfort = Math.min(100, c.comfort + KEG.comfortBoost);
+    if (c.state === "leaving") { c.state = "seated"; c.bubble.until = 0; }
+    c.saidCold = false;
+    bubble(c, pick(kegCheers), KEG.cheerSeconds, "");
+    state.keg.pours -= 1;
+    state.log.push(`Topped off ${c.data.name}`);
+    if (state.keg.pours <= 0) { player.carrying = null; dropCarry(); say("That's the keg. Empty.", 4); }
+  } else if (player.carrying === "keg" && nearFire) {
+    // The trap (Bryan, 09/26): dumping the keg on the fire hisses, steams, knocks
+    // the flames down hard, and somebody yells at you. Empties the whole keg.
+    player.carrying = null; dropCarry();
+    state.fire.level = Math.max(0, state.fire.level - KEG.fireDip);
+    state.keg.pours = 0;
+    state.keg.steamUntil = state.t + KEG.steamSeconds;
+    const yeller = pick(campers.filter((c) => c.state === "seated" || c.state === "leaving"));
+    if (yeller) bubble(yeller, kegFireYell, 4, "leaving");
+    say("The keg hits the coals. Hiss, and a wall of steam. That's the whole keg gone.", 5);
+    state.log.push("Poured the keg on the fire");
+    hissSteam();
   } else if (!player.carrying && nearCooler && state.beer.available && !(nearWood && state.wood > 0)) {
     state.beer.available = false; player.carrying = "beer"; showCarry("beer");
     say("A full one. Unopened. You know what to do.", 4);
@@ -1220,10 +1327,23 @@ function showCarry(kind) {
   dropCarry();
   const m = kind === "log" ? makeLogMesh()
     : kind === "beer" ? new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.32, 10), new THREE.MeshLambertMaterial({ color: "#c0c8d0" }))
+    : kind === "keg" ? buildMiniKeg()
     : new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.45, 0.28), new THREE.MeshLambertMaterial({ color: "#d62828" }));
   m.position.set(0.45, 0.95, 0.1);
+  if (kind === "keg") m.rotation.z = Math.PI / 2.4;   // tipped in the arm, like the log
   player.mesh.add(m);
   player.carryMesh = m;
+}
+// Nearest not-yet-kegged seated (or leaving — a pour saves him too) camper in reach,
+// for the keg's hint/label and its pour action to agree on the same target.
+function findKegTarget(reach) {
+  let best = null, bestD = Infinity;
+  campers.forEach((c) => {
+    if (c.kegged || (c.state !== "seated" && c.state !== "leaving")) return;
+    const d = dist2(player.pos, c.mesh.position);
+    if (d < reach + 0.3 && d < bestD) { best = c; bestD = d; }
+  });
+  return best;
 }
 function dropCarry() {
   if (player.carryMesh) { player.mesh.remove(player.carryMesh); player.carryMesh = null; }
@@ -1269,6 +1389,39 @@ function updateFire(dt) {
       const jd = campers.find((c) => c.data.id === "johnny-d");
       if (jd && jd.mesh.visible) bubble(jd, "There's a whole pallet behind the shed!", 5, "");
       state.log.push("Johnny D found the pallet");
+    }
+  }
+}
+
+// ---------- Overheat (Bryan, 09/26) ----------
+// Builds only while the player is parked at the fire AND it is actually hot
+// (state.fire.hot, strictly above FIRE.hot / the Hell's Anus line) — never at
+// normal fire levels. Cools fast (HEAT.coolPerSec) the instant either condition
+// drops. At HEAT.forceBackAt the game nudges the player back out and blocks fire
+// actions (see updatePlayer) until it cools to HEAT.recoverAt.
+function updateHeat(dt) {
+  const h = state.heat;
+  const reach = isTouch ? PLAYER.reachTouch : PLAYER.reach;
+  const atFire = player.pos.length() < PLAYER.minRadius + reach;
+  if (atFire && state.fire.hot) {
+    h.level = Math.min(HEAT.max, h.level + HEAT.buildPerSec * (1 + HEAT.tierBoost * state.fire.hotTier) * dt);
+  } else {
+    h.level = Math.max(0, h.level - HEAT.coolPerSec * dt);
+  }
+  if (!h.forced && h.level >= HEAT.forceBackAt) {
+    h.forced = true;
+    pbubble(pick(["Whew, I'm cooking.", "Too hot, gotta back off.", "I need some air."]), 2.6, "hot");
+    say(`${player.data.name} backs off from the heat.`, 3);
+  } else if (h.forced && h.level <= HEAT.recoverAt) {
+    h.forced = false;
+  }
+  if (h.forced) {
+    const clear = PLAYER.minRadius + reach + HEAT.pushClear;
+    const r = player.pos.length();
+    if (r < clear) {
+      const dir = r > 0.01 ? player.pos.clone().setY(0).setLength(clear) : new THREE.Vector3(0, 0, clear);
+      player.pos.lerp(dir, Math.min(1, dt * HEAT.pushSpeed));
+      player.mesh.position.copy(player.pos);
     }
   }
 }
@@ -1574,14 +1727,16 @@ function updateEvents(dt) {
     }
   }
 
-  // Don M: appears between two trees, stands there, leaves. No effect.
+  // Don M: appears between two trees, stands there, leaves. He hands over the
+  // mini keg on the first sighting he's reached; every sighting after that is
+  // just "Gentlemen." (gaveKeg does not reset here — unlike the old log gift, the
+  // keg is a one-time thing for the whole night, see KEG in config.js).
   ev.donIn -= dt;
   if (ev.donIn <= 0 && ev.don <= 0) {
     ev.donIn = rand(EVENTS.donMinGap, EVENTS.donMaxGap);
     ev.don = EVENTS.donSeconds;
     const a = rand(0.6, 5.6);
     donMesh.position.set(Math.sin(a) * EVENTS.donRadius, 0, Math.cos(a) * EVENTS.donRadius);
-    state.don.gaveLog = false;
     donMesh.lookAt(0, 0, 0);
     donMesh.visible = true;
     state.don.mesh = donMesh;
@@ -1867,7 +2022,7 @@ function updateHints(dt) {
     return;
   }
   hintArrow.visible = false;
-  if (donMesh.visible && !h.donShown && !state.don.gaveLog) { h.donShown = true; showHint(donMesh.position, "Don M is at the tree line. Walk over and press Space. He might have something."); return; }
+  if (donMesh.visible && !h.donShown && !state.don.gaveKeg) { h.donShown = true; showHint(donMesh.position, "Don M is at the tree line. Walk over and press Space. He might have something."); return; }
   if (!donMesh.visible) h.donShown = false;
   if (!h.gasEver && state.gas > 0 && f < HINTS.gasBelow && t - h.lastGas > HINTS.gasEvery) { h.lastGas = t; showHint(new THREE.Vector3(LAYOUT.gasCan.x, 0, LAYOUT.gasCan.z), "The gas can. Grab it, pour it on the fire. Big flare, burns fast."); return; }
   if (!h.woodEver && f < HINTS.woodBelow && t - h.lastWood > HINTS.woodEvery) { h.lastWood = t; showHint(new THREE.Vector3(LAYOUT.woodPile.x, 0, LAYOUT.woodPile.z), "The wood pile. Space to grab a log, walk it over, Space at the fire."); return; }
@@ -2061,8 +2216,9 @@ function endNight(alone) {
       <li>Taken by the bear: ${(() => { const left = [...returned]; return bearVictims.map((n) => { const i = left.indexOf(n); if (i >= 0) { left.splice(i, 1); return `${n} (returned, wrong chair)`; } return n; }); })().join(", ") || "nobody"}</li>
       <li>Gas used: ${state.gasUsed}. Fire-breathing: ${state.bottle.used ? "yes" : "no"}. Beer bomb: ${state.beer.exploded ? "yes" : state.beer.thrown ? "wasted" : "no"}. Beer can in the fire: ${state.canBomb.phase === "done" && state.canBomb.tosser ? `yes, ${state.canBomb.tosser.data.name}` : "no"}</li>
       <li>Time in Hell's Anus: ${hotPts}s (+${hotPts}). Peak: ${state.fire.peakTier ? HOT_LEVELS[state.fire.peakTier - 1].name : "never got there"}</li>
-      <li>Earned: ${[state.powerups.woodEarned ? "the pallet" : null, state.powerups.gasEarned ? "the gas can" : null, state.don.gaveLog || state.log.includes("Don M gave a log") ? "a log from Don M" : null].filter(Boolean).join(", ") || "nothing"}</li>
+      <li>Earned: ${[state.powerups.woodEarned ? "the pallet" : null, state.powerups.gasEarned ? "the gas can" : null, state.don.gaveKeg ? "a mini keg from Don M" : null].filter(Boolean).join(", ") || "nothing"}</li>
       <li>Wood placement: ${state.fire.spreads} good spreads, ${state.fire.smothers} smothers${state.log.some((l) => l.startsWith("Alan")) ? ". Alan came through with the bees." : ""}</li>
+      <li>Keg: ${state.don.gaveKeg ? (state.log.includes("Poured the keg on the fire") ? "dumped in the fire" : `${state.log.filter((l) => l.startsWith("Topped off")).length} of ${KEG.pours} poured`) : "never got it"}</li>
     </ul>
     <p class="verdict">${verdict}</p>
     ${renderBoard(saveScore(player.data.name, score))}`;
@@ -2096,18 +2252,24 @@ function render(dt) {
   if (state.phase === "start") state.t += dt * 0; // clock frozen on the title; flicker uses titleClock below
   const level = state.fire.level / FIRE.hot;           // 1.0 at the Hell's Anus line, 1.5 at max
   const hot = state.fire.level > FIRE.hot;
+  // An event (plate, wrapper, beer bomb, beer can) can push the level past the hot line
+  // after updateFire() ran this substep, leaving hotTier at 0 for one frame. Never read
+  // HOT_LEVELS[-1]: that was the random red "hiccupped" box.
+  const tier = hot ? Math.max(1, state.fire.hotTier) : 0;
   const ft = state.phase === "start" ? titleClock : state.t;
   const flicker = 0.9 + Math.sin(ft * 23) * 0.06 + Math.sin(ft * 7.3) * 0.04;
   // Single visual hook: flame sprites, sparks, coal bed and pit-log glow all driven
   // from the same authoritative level/hot/hotTier (see docs/HANDOFF.md art pass step 3).
-  updateFireVisuals(fireVis, { level, hot, tier: state.fire.hotTier, dt, flicker, wind: state.wind });
+  updateFireVisuals(fireVis, { level, hot, tier, dt, flicker, wind: state.wind });
   // 0.81 rebalances for fireLight's decay dropping from 1.4 to 1.2 in world.js
   // (09/26, "dark outside the ring" pass): same radius-1.3 cross-over method as
   // the original 0.85 (for the 2 -> 1.4 drop), so close-in brightness (inside
   // the ring) is unchanged while the lower decay reaches further outside it.
-  fireLight.intensity = (6 + 120 * Math.min(level, 1) + (hot ? 160 * (level - 1) + 40 + state.fire.hotTier * 18 : 0)) * 0.81 * flicker * (1 + (fireVis.lightNudge || 0));
+  fireLight.intensity = (6 + 120 * Math.min(level, 1) + (hot ? 160 * (level - 1) + 40 + tier * 18 : 0)) * 0.81 * flicker * (1 + (fireVis.lightNudge || 0));
   fireLight.color.setHSL(hot ? 0.1 : 0.07 - (1 - Math.min(level, 1)) * 0.04, hot ? 0.7 : 1, hot ? 0.7 : 0.55);
   updateSmoke(dt, level, hot);
+  updateHeadlamp();
+  updateHeatGauge();
 
   // Dawn in the last minute
   const dawn = THREE.MathUtils.clamp((state.t - (NIGHT_SECONDS - 60)) / 60, 0, 1);
@@ -2119,7 +2281,7 @@ function render(dt) {
   ui.fireFill.style.width = `${(state.fire.level / FIRE.max) * 100}%`;
   ui.fireFill.classList.toggle("low", level < 0.25);
   ui.fireFill.classList.toggle("hot", hot);
-  ui.fireLabel.textContent = hot ? `FIRE: ${HOT_LEVELS[state.fire.hotTier - 1].name}` : "FIRE";
+  ui.fireLabel.textContent = hot ? `FIRE: ${HOT_LEVELS[tier - 1].name}` : "FIRE";
   ui.clock.textContent = clockText();
   ui.wood.textContent = state.wood;
   ui.gas.textContent = state.gas;
@@ -2194,7 +2356,10 @@ function updateSmoke(dt, level, hot) {
   const windPush = w.active ? 2.2 : 0.25;
   const smothering = state.fire.catching.some((c) => c.smother);
   const catching = smothering ? 3.6 : state.fire.catching.length > 0 ? 2.5 : 1;   // a fresh log smokes, a smothered one smokes more
-  const rate = level <= 0.02 ? 0 : (hot ? 6 : 10 + 14 * Math.min(level, 1)) * catching;
+  // The keg-on-the-fire trap always shows a steam burst, even when the dip it
+  // caused leaves fire.level near 0 (which would otherwise mean no smoke at all).
+  const steaming = state.t < state.keg.steamUntil;
+  const rate = steaming ? 46 : level <= 0.02 ? 0 : (hot ? 6 : 10 + 14 * Math.min(level, 1)) * catching;
   smokeSpawn += rate * dt;
   for (const sp of smoke) {
     const u = sp.userData;
@@ -2213,9 +2378,45 @@ function updateSmoke(dt, level, hot) {
     sp.position.y += u.vel.y * dt * (w.active ? 0.55 : 1);
     const size = u.size + k * 2.2;
     sp.scale.set(size, size, 1);
-    sp.material.opacity = (hot ? 0.18 : 0.42) * Math.sin(Math.PI * Math.min(1, k)) * (0.4 + 0.6 * Math.min(level, 1));
-    sp.material.color.setScalar(hot ? 0.85 : 0.55);
+    sp.material.opacity = steaming ? 0.55 * Math.sin(Math.PI * Math.min(1, k)) : (hot ? 0.18 : 0.42) * Math.sin(Math.PI * Math.min(1, k)) * (0.4 + 0.6 * Math.min(level, 1));
+    sp.material.color.setScalar(steaming ? 0.95 : hot ? 0.85 : 0.55);
   }
+}
+
+// ---------- Headlamp (Bryan, 09/26) ----------
+// Fades in purely by fire level (never touching the phone camera/follow numbers,
+// which are off limits for this pass). One SpotLight, no shadows; the target is a
+// scene-level Object3D placed a few units ahead of the player each frame, so the
+// cone always points wherever the player is currently facing.
+function updateHeadlamp() {
+  if (state.phase !== "playing") { headlampLight.intensity = 0; return; }
+  const k = THREE.MathUtils.clamp((HEADLAMP.threshold - state.fire.level) / HEADLAMP.fadeRange, 0, 1);
+  headlampLight.intensity = k * HEADLAMP.intensity;
+  if (k <= 0) return;
+  const p = player.mesh.position;
+  headlampLight.position.set(p.x, p.y + 1.55, p.z);
+  const yaw = player.mesh.rotation.y;
+  const fx = Math.sin(yaw), fz = Math.cos(yaw);
+  headlampTarget.position.set(p.x + fx * 3.2, p.y + 0.7, p.z + fz * 3.2);
+}
+
+// ---------- Overheat gauge (Bryan, 09/26) ----------
+// Two billboard sprites floating over the player's head; only shown once heat
+// starts building, so it is invisible at normal fire levels the way Bryan asked.
+function updateHeatGauge() {
+  const frac = state.heat.level / 100;
+  const show = state.phase === "playing" && frac > 0.01;
+  heatBarBack.visible = heatBarFill.visible = show;
+  if (!show) return;
+  const p = player.mesh.position;
+  const y = p.y + PLAYER_HEAD_Y + 0.32;
+  heatBarBack.position.set(p.x, y, p.z);
+  const w = Math.max(0.02, HEAT_BAR_W * frac);
+  heatBarFill.scale.x = w;
+  heatBarFill.position.set(p.x - (HEAT_BAR_W - w) / 2, y, p.z);
+  const pulse = state.heat.forced ? 0.75 + 0.25 * Math.sin(state.t * 10) : 1;
+  heatBarFill.material.color.setHSL(0.14 - 0.14 * frac, 0.9, 0.55);
+  heatBarFill.material.opacity = 0.95 * pulse;
 }
 
 // ---------- Desktop bubble overlap nudge ----------
@@ -2386,7 +2587,7 @@ function saveScore(name, score) {
 function renderBoard(result) {
   const { top, entry } = result || { top: loadBoard(), entry: null };
   if (!top.length) return "";
-  const rows = top.slice(0, 5).map((e, i) => `<tr class="${entry && e === entry ? "me" : ""}"><td>${i + 1}</td><td>${e.name}</td><td>${e.score}</td><td>${e.diff || "CAMP"}</td><td>${e.when}</td></tr>`).join("");
+  const rows = top.slice(0, 5).map((e, i) => `<tr class="${entry && e === entry ? "me" : ""}"><td>${i + 1}</td><td>${e.name}</td><td>${e.score}</td><td>${e.diff || "NORMAL"}</td><td>${e.when}</td></tr>`).join("");
   return `<table class="board"><thead><tr><th></th><th>Camper</th><th>Score</th><th>Mode</th><th>Night</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 document.getElementById("title-board").innerHTML = renderBoard(null);

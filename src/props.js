@@ -304,6 +304,39 @@ export function buildCampChair() {
   return g;
 }
 
+// Don M's gift (Bryan, 09/26): a Heineken-style mini keg. Green body, silver rim and
+// tap, a simple flat red star badge (no real logo artwork) — chunky and flat-shaded
+// like everything else here, just enough of a read to say "keg" at a glance.
+function starShape(outer, inner, points) {
+  const shape = new THREE.Shape();
+  for (let i = 0; i < points * 2; i++) {
+    const r = i % 2 === 0 ? outer : inner;
+    const a = (i / (points * 2)) * Math.PI * 2 - Math.PI / 2;
+    const x = Math.cos(a) * r, y = Math.sin(a) * r;
+    if (i === 0) shape.moveTo(x, y); else shape.lineTo(x, y);
+  }
+  shape.closePath();
+  return shape;
+}
+export function buildMiniKeg() {
+  const g = new THREE.Group();
+  const green = lambert("#0a5c36"), silver = lambert("#c7cdd2"), red = lambert("#c1121f");
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.155, 0.34, 12), green);
+  body.position.y = 0.19; body.castShadow = true;
+  const topRim = new THREE.Mesh(new THREE.CylinderGeometry(0.165, 0.165, 0.03, 12), silver);
+  topRim.position.y = 0.365;
+  const bottomRim = new THREE.Mesh(new THREE.CylinderGeometry(0.165, 0.165, 0.03, 12), silver);
+  bottomRim.position.y = 0.02;
+  const tap = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.028, 0.11, 6), silver);
+  tap.rotation.z = Math.PI / 2; tap.position.set(0.19, 0.25, 0);
+  const spigot = new THREE.Mesh(new THREE.SphereGeometry(0.03, 6, 6), silver);
+  spigot.position.set(0.25, 0.25, 0);
+  const star = new THREE.Mesh(new THREE.ShapeGeometry(starShape(0.075, 0.03, 5)), red);
+  star.position.set(0, 0.2, 0.161);
+  g.add(body, topRim, bottomRim, tap, spigot, star);
+  return g;
+}
+
 export function buildPokerStick() {
   const mat = lambert("#6b4a2b");
   const tipMat = lambert("#1c1712");

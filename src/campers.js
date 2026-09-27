@@ -72,6 +72,13 @@ export const comments = [
 // Said only at the cooler, by whoever is not one of the three with their own line
 export const coolerComments = ["Anybody need one while I'm up?", "Who brought Strawberitas??"];
 
+// Don M's mini keg (Bryan, 09/26; see docs/CAMPERS.md "Keg" section). Short, generic
+// ad-libs for whoever just got topped off, not attributed to any one camper's voice.
+// kegFireYell is what someone shouts if you pour it on the fire instead. Both approved
+// by Bryan 09/26/2026.
+export const kegCheers = ["Now we're talking!", "Cheers!", "That hits the spot.", "Attaboy.", "Keep it coming."];
+export const kegFireYell = "Hey! Not the keg in the fire!";
+
 const ROTATION_KEY = "aij-rotation";
 
 // Random player each run, rotating so nobody repeats until everyone playable has had a turn.
