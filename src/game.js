@@ -1,12 +1,12 @@
 // All In Jefferson, prototype 1: the fire loop on a flat plane with box campers.
 import * as THREE from "three";
-import { NIGHT_SECONDS, NIGHT_START_MIN, NIGHT_END_MIN, MIDNIGHT_MIN, FIRE, WIND, CAMPER, BEAR, PLAYER, LAYOUT, POWERUPS, EVENTS, HOT_LEVELS, SMOKE, DIFFICULTY, HINTS, PHONE_FOLLOW, KEG, HEAT, HEADLAMP } from "./config.js?v=130";
-import { initSound, coyoteYip, whoosh, growl, bang, startCrackle, setCrackle, footstep, logLand, pokeSound, buzz, playIntroThenLoop, startLoop, stopMusic, playDawn, toggleMusic, musicEnabled, musicActive, bearTheme, bearRideTheme, bearWomp, duckMusic, hissSteam } from "./sound.js?v=130";
-import { campers as roster, pickPlayer, commitPick, snacks, emotes, comments, coolerComments, kegCheers, kegFireYell } from "./campers.js?v=130";
-import { buildWorld, makeCamperMesh, makeChairMesh, makeLogMesh, setSeated, stepWalkCycle, stepBearWalk, SEATED_DROP } from "./world.js?v=130";
-import { buildMiniKeg } from "./props.js?v=130";
-import { updateFireVisuals } from "./fire.js?v=130";
-import { initShareCardButtons } from "./sharecard.js?v=130";
+import { NIGHT_SECONDS, NIGHT_START_MIN, NIGHT_END_MIN, MIDNIGHT_MIN, FIRE, WIND, CAMPER, BEAR, PLAYER, LAYOUT, POWERUPS, EVENTS, HOT_LEVELS, SMOKE, DIFFICULTY, HINTS, PHONE_FOLLOW, KEG, HEAT, HEADLAMP } from "./config.js?v=131";
+import { initSound, coyoteYip, whoosh, growl, bang, startCrackle, setCrackle, footstep, logLand, pokeSound, buzz, playIntroThenLoop, startLoop, stopMusic, playDawn, toggleMusic, musicEnabled, musicActive, bearTheme, bearRideTheme, bearWomp, duckMusic, hissSteam } from "./sound.js?v=131";
+import { campers as roster, pickPlayer, commitPick, snacks, emotes, comments, coolerComments, kegCheers, kegFireYell } from "./campers.js?v=131";
+import { buildWorld, makeCamperMesh, makeChairMesh, makeLogMesh, setSeated, stepWalkCycle, stepBearWalk, SEATED_DROP, setExpression } from "./world.js?v=131";
+import { buildMiniKeg } from "./props.js?v=131";
+import { updateFireVisuals } from "./fire.js?v=131";
+import { initShareCardButtons } from "./sharecard.js?v=131";
 
 const canvas = document.getElementById("scene");
 const world = buildWorld(canvas);
@@ -1030,6 +1030,26 @@ function frame(now) {
 }
 requestAnimationFrame(frame);
 
+// Faces (Bryan 09/27): scared while the bear is in camp or right after the can goes
+// bang, happy for a moment after a keg pour, the gas fireball or Tom W showing up,
+// cold when they are getting cold or heading to bed, otherwise neutral. The player
+// is scared of the bear too and grimaces (the cold face) when overheated.
+function updateExpressions() {
+  const bearIn = state.bear.state !== "idle";
+  const t = state.t;
+  campers.forEach((c) => {
+    let e = "neutral";
+    if (bearIn || (c.scaredUntil || 0) > t) e = "scared";
+    else if ((c.happyUntil || 0) > t) e = "happy";
+    else if (c.state === "leaving" || c.comfort < CAMPER.coolBelow) e = "cold";
+    if (c.expr !== e) { c.expr = e; setExpression(c.mesh, e); }
+  });
+  if (player) {
+    const e = bearIn ? "scared" : state.heat.forced ? "cold" : "neutral";
+    if (player.expr !== e) { player.expr = e; setExpression(player.mesh, e); }
+  }
+}
+
 // A NaN anywhere in a position makes the whole scene vanish with no error. Catch it and snap back.
 function guardNumbers() {
   if (player && !Number.isFinite(player.pos.x + player.pos.y + player.pos.z)) { player.pos.set(0, 0, 4.6); player.mesh.position.copy(player.pos); reportError(new Error("player position went NaN, reset")); }
@@ -1083,6 +1103,7 @@ function update(dt) {
   updateBear(dt);
   animateBearWalk(dt);
   updateMidnight();
+  updateExpressions();
   checkEnd();
 }
 
@@ -1308,6 +1329,7 @@ function updatePlayer(dt) {
     state.fire.level = Math.min(FIRE.max, state.fire.level + FIRE.gasHeat);
     state.fire.gasBoostUntil = state.t + FIRE.gasBurnSeconds;
     const victim = pick(campers.filter((c) => c.state === "seated"));
+    campers.forEach((c) => { if (c.state === "seated") c.happyUntil = state.t + 3; });
     say(victim ? `FIREBALL. ${victim.data.name} has no eyebrows. It'll burn hot, and fast.` : "FIREBALL. It'll burn hot, and fast.", 5);
     campers.forEach((c) => { if (c.state === "seated") c.comfort = Math.min(100, c.comfort + 8); });
     state.log.push(`Gas at ${clockText()}`);
@@ -1330,6 +1352,7 @@ function updatePlayer(dt) {
     if (c.state === "leaving") { c.state = "seated"; c.bubble.until = 0; }
     c.saidCold = false;
     bubble(c, pick(kegCheers), KEG.cheerSeconds, "");
+    c.happyUntil = state.t + KEG.cheerSeconds + 2;
     state.keg.pours -= 1;
     state.log.push(`Topped off ${c.data.name}`);
     if (state.keg.pours <= 0) { player.carrying = null; dropCarry(); say("That's the keg. Empty.", 4); }
@@ -1985,6 +2008,7 @@ function updateCanBomb(dt) {
       cb.tosser.mesh.userData.parts.armR.rotation.x = 0;
       canBombMesh.position.copy(cb.to);
       cb.phase = "heat"; cb.t = 0;
+      campers.forEach((c) => { if (c !== cb.tosser) c.scaredUntil = state.t + 2.5; });
       // DRAFT (Bryan to review): a plain ticker line naming who threw it.
       say(`${cb.tosser.data.name} just put a full beer in the fire.`, 4);
       state.log.push(`${cb.tosser.data.name} put a beer can in the fire at ${clockText()}`);
@@ -2226,7 +2250,7 @@ function updateMidnight() {
   tom.state = "arriving";
   tom.comfort = CAMPER.startComfort;
   bubble(tom, tom.data.warm, 6, "");
-  campers.forEach((c) => { if (c.state === "seated" || c.state === "leaving") c.comfort = Math.min(100, c.comfort + CAMPER.tomWComfortBoost); });
+  campers.forEach((c) => { if (c.state === "seated" || c.state === "leaving") { c.comfort = Math.min(100, c.comfort + CAMPER.tomWComfortBoost); c.happyUntil = state.t + 5; } });
   say("Headlights on the road. Tom W made it.", 5);
   state.log.push("Tom W arrived at midnight");
 }
