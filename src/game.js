@@ -1,12 +1,13 @@
 // All In Jefferson, prototype 1: the fire loop on a flat plane with box campers.
 import * as THREE from "three";
-import { NIGHT_SECONDS, NIGHT_START_MIN, NIGHT_END_MIN, MIDNIGHT_MIN, FIRE, WIND, CAMPER, BEAR, PLAYER, LAYOUT, POWERUPS, EVENTS, HOT_LEVELS, SMOKE, DIFFICULTY, HINTS, PHONE_FOLLOW, KEG, HEAT, HEADLAMP } from "./config.js?v=136";
-import { initSound, coyoteYip, whoosh, growl, bang, startCrackle, setCrackle, footstep, logLand, pokeSound, buzz, playIntroThenLoop, startLoop, stopMusic, playDawn, toggleMusic, musicEnabled, musicActive, bearTheme, bearRideTheme, bearWomp, duckMusic, hissSteam } from "./sound.js?v=136";
-import { campers as roster, pickPlayer, commitPick, snacks, emotes, comments, coolerComments, kegCheers, kegFireYell } from "./campers.js?v=136";
-import { buildWorld, makeCamperMesh, makeChairMesh, makeLogMesh, makePalletMesh, setSeated, stepWalkCycle, stepBearWalk, SEATED_DROP, setExpression } from "./world.js?v=136";
-import { buildMiniKeg } from "./props.js?v=136";
-import { updateFireVisuals } from "./fire.js?v=136";
-import { initShareCardButtons } from "./sharecard.js?v=136";
+import { NIGHT_SECONDS, NIGHT_START_MIN, NIGHT_END_MIN, MIDNIGHT_MIN, FIRE, WIND, CAMPER, BEAR, PLAYER, LAYOUT, POWERUPS, EVENTS, HOT_LEVELS, SMOKE, DIFFICULTY, HINTS, PHONE_FOLLOW, KEG, HEAT, HEADLAMP, TRUCK } from "./config.js?v=140";
+import { initSound, coyoteYip, whoosh, growl, bang, startCrackle, setCrackle, footstep, logLand, pokeSound, buzz, playIntroThenLoop, startLoop, stopMusic, playDawn, toggleMusic, musicEnabled, musicActive, bearTheme, bearRideTheme, bearWomp, duckMusic, hissSteam, truckRumble, truckDoorThunk } from "./sound.js?v=140";
+import { campers as roster, pickPlayer, commitPick, snacks, emotes, comments, coolerComments, kegCheers, kegFireYell } from "./campers.js?v=140";
+import { buildWorld, makeCamperMesh, makeChairMesh, makeLogMesh, makePalletMesh, setSeated, stepWalkCycle, stepBearWalk, SEATED_DROP, setExpression } from "./world.js?v=140";
+import { buildMiniKeg, buildGuitar, buildTrumpet, buildBourbonGlass, buildYogurtCup, buildCheesePuffsBag, buildCoffeeMug, buildWaterSkis, buildFlightHelmet, buildCornholeSet } from "./props.js?v=140";
+import { buildPickupTruck, TRUCK_GEOM } from "./truck.js?v=140";
+import { updateFireVisuals } from "./fire.js?v=140";
+import { initShareCardButtons } from "./sharecard.js?v=140";
 
 const canvas = document.getElementById("scene");
 const world = buildWorld(canvas);
@@ -32,6 +33,16 @@ glassBottleMesh.add(glassBody, glassNeck);
 glassBottleMesh.visible = false;
 scene.add(glassBottleMesh);
 
+// Johnny D's cornhole boards (signature-props backlog item, docs/CAMPERS.md):
+// too big to sit beside a chair, so unlike the per-camper hand props below
+// (built fresh in buildCrew, one per seated NPC) this is a single fixed camp
+// fixture built once and always present, regardless of who is playing that
+// night, same as the cooler or wood pile.
+const cornholeMesh = buildCornholeSet(LAYOUT.cornhole.gap);
+cornholeMesh.position.set(LAYOUT.cornhole.x, 0, LAYOUT.cornhole.z);
+cornholeMesh.rotation.y = LAYOUT.cornhole.rot || 0;
+scene.add(cornholeMesh);
+
 // Touch-only "you'll act on this" ring (built here for the same reason as the
 // two props above), Bryan's phone play, 09/26: "the poker was tough to get".
 // Deliberately its own mesh, separate from world.js's hintArrow (that one marks
@@ -53,6 +64,85 @@ headlampLight.castShadow = false;
 const headlampTarget = new THREE.Object3D();
 headlampLight.target = headlampTarget;
 scene.add(headlampLight, headlampTarget);
+
+// Tom W's truck (midnight arrival feature). Its own module is src/truck.js
+// (kept out of props.js/world.js, which are off limits for this pass -- see
+// the comment on canBombMesh/glassBottleMesh above for the same reasoning).
+// The SpotLight is pre-created here at intensity 0, same trick as
+// headlampLight above, so its shader variant compiles at load instead of at
+// midnight (Bryan's ask: no hitch when a fourth dynamic light joins fireLight/
+// keyLight/headlampLight for the first time).
+//
+// The mesh itself gets the same early-warmup treatment for a second, separate
+// reason: a light recompiling every material's shader isn't the only way
+// midnight could stutter -- the truck's own dozen-plus new meshes and its
+// glow texture need their buffers uploaded to the GPU the first time they're
+// actually drawn, and an invisible object is never actually drawn
+// (renderer.compile() below compiles shader *programs* early, but doesn't
+// touch that upload). So rather than toggling truckMesh.visible, it stays
+// visible and parked 30 units underground until midnight, so it renders for
+// real -- and uploads for real -- during the idle title/lobby frames, then
+// simply drives up out of the ground on its own path. buildPickupTruck() also
+// turns off frustum culling on every part, since culling would skip that
+// upload the same way invisibility does while it's sitting off-camera
+// underground.
+const truckMesh = buildPickupTruck();
+truckMesh.position.set(0, -30, 0);
+scene.add(truckMesh);
+const truckLight = new THREE.SpotLight(TRUCK.lightColor, 0, TRUCK.lightDistance, TRUCK.lightAngle, TRUCK.lightPenumbra, 1.2);
+truckLight.castShadow = false;
+const truckLightTarget = new THREE.Object3D();
+truckLight.target = truckLightTarget;
+scene.add(truckLight, truckLightTarget);
+// Two visible beam cones (additive, untoned) and two glowing lens sprites, one
+// per headlight. A single small radial-gradient texture serves both sprites.
+function makeGlowTexture() {
+  const c = document.createElement("canvas");
+  c.width = c.height = 48;
+  const g = c.getContext("2d");
+  const grad = g.createRadialGradient(24, 24, 0, 24, 24, 22);
+  grad.addColorStop(0, "rgba(255,246,214,1)");
+  grad.addColorStop(0.45, "rgba(255,230,170,0.65)");
+  grad.addColorStop(1, "rgba(255,220,140,0)");
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 48, 48);
+  return new THREE.CanvasTexture(c);
+}
+const truckGlowTex = makeGlowTexture();
+// fog:false, same as the moon/star sprites in world.js -- a headlight beam
+// needs to punch through the night's fog, not fade into it like a solid prop.
+const truckBeamMat = () => new THREE.MeshBasicMaterial({ color: "#fff3d6", transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false, fog: false });
+const truckBeams = [-1, 1].map(() => {
+  const cone = new THREE.Mesh(new THREE.ConeGeometry(1.1, TRUCK.beamLength, 10, 1, true), truckBeamMat());
+  // ConeGeometry's apex sits at local +Y, base at local -Y; rotating -90 deg
+  // around X swings the apex to local -Z and the (wide) base to local +Z, so
+  // positioning the group's center TRUCK.beamLength/2 forward of the lens puts
+  // the narrow apex right at the lens and the flared base out at beamLength.
+  cone.rotation.x = -Math.PI / 2;
+  cone.frustumCulled = false;
+  // Left visible (opacity 0 already hides it) rather than toggled off, same
+  // upload-before-midnight reasoning as truckMesh above; setTruckLights()
+  // still flips .visible off once fully faded for the free draw-call skip.
+  scene.add(cone);
+  return cone;
+});
+const truckLensGlows = [-1, 1].map(() => {
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: truckGlowTex, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false, fog: false }));
+  sp.scale.set(0.5, 0.5, 1);
+  sp.frustumCulled = false;
+  scene.add(sp);
+  return sp;
+});
+// A dim, steady parking-light glow once the truck is parked for good (Bryan's
+// "lights off, maybe a dim parking light glow is fine") -- cheap: no dynamic
+// light, just the same lens sprites held at a low, non-zero opacity.
+const TRUCK_PARK_GLOW = 0.16;
+// Belt and suspenders on top of the buried-and-rendering trick above: this
+// compiles every material's shader program synchronously, right now, instead
+// of leaving that for whichever real frame first submits it (normally the
+// very next frame after this module loads, since the truck already renders
+// every frame -- but should the render order ever change, this still holds).
+try { renderer.compile(scene, camera); } catch (e) { /* non-fatal; the buried-mesh + pre-created-light mitigations above still apply */ }
 
 // Overheat gauge (Bryan, 09/26): a small two-sprite bar that floats over the
 // player's head, visible only once heat starts building. Sprites always face the
@@ -196,6 +286,11 @@ const state = {
   chatterIn: rand(CAMPER.chatterMin, CAMPER.chatterMax),
   message: { text: "", until: 0 },
   midnightDone: false,
+  // Tom W's truck: idle until updateMidnight() fires, then approach (driving in,
+  // headlights fading up) -> stopped (parked, lights up on the campers) ->
+  // fading (headlights down) -> done (parked for good, lights off). See
+  // updateTruckArrival() below.
+  truck: { phase: "idle", timer: 0, tom: null, path: null },
   log: [],
 };
 
@@ -371,12 +466,82 @@ let lastActionTarget = null;
 // their feet, when keeping the touch follow's tracked points on screen.
 const PLAYER_HEAD_Y = 1.85;
 
+// Signature props at the fire (backlog item, docs/CAMPERS.md "Looks"/roster
+// table). Each entry is built fresh per seated NPC in buildCrew (below) and
+// anchored to that camper's ORIGINAL, un-scooted chair position captured once
+// at build time -- never re-read from c.chair/c.chairMesh afterward, so a
+// later bear-ride-back reassignment (which repoints a DIFFERENT camper's
+// chair/chairMesh at this one's chair) can never drag this prop along or
+// leave it floating; see updateProps. `side`/`forward` are offsets in the
+// chair's own local frame (right = sideways, forward = toward the fire,
+// negative = toward the chair back); `lean` tilts the prop backward against
+// the chair back (guitar, skis); `takesToBed` hides the prop while that
+// camper is actually walking to bed or gone (his leaving line says he takes
+// it) and shows it again the instant his state is anything else, including a
+// bear ride-back reseating -- see docs/CAMPERS.md.
+const PROP_BUILDERS = {
+  "chris-occ": { build: buildGuitar, side: 1, forward: -0.2, lean: true, takesToBed: true },
+  "razoo": { build: buildTrumpet, side: 1, forward: 0.2 },
+  "bryan-j": { build: buildBourbonGlass, side: 1, forward: 0.2 },
+  "spitty": { build: buildYogurtCup, side: -1, forward: 0.2, takesToBed: true },
+  "perry-s": { build: buildCheesePuffsBag, side: 1, forward: 0.2 },
+  "tom-s": { build: buildCoffeeMug, side: -1, forward: 0.2 },
+  "brian-r": { build: buildWaterSkis, side: -1, forward: -0.2, lean: true },
+  "scott-k": { build: buildFlightHelmet, side: 1, forward: 0.2 },
+  // Johnny D's cornhole set is a fixed camp fixture (too big to sit beside a
+  // chair), built once at module scope above as cornholeMesh -- no entry here.
+};
+// Builds `spec.build()`, orients it to face the fire the same way the chair
+// at `base` does, offsets it sideways/forward-back in that same local frame,
+// and (if `spec.lean`) tilts it backward against the chair back. Returns the
+// outer group (already added to the scene) and the local offset from `base`
+// that updateProps re-applies every frame on top of the chair's own scoot.
+function placePropAtChair(spec, base) {
+  const inner = spec.build();
+  if (spec.lean) inner.rotation.x = -0.24;
+  const group = new THREE.Group();
+  group.add(inner);
+  const forwardDir = base.clone().multiplyScalar(-1); forwardDir.y = 0;
+  if (forwardDir.lengthSq() < 1e-6) forwardDir.set(0, 0, 1); else forwardDir.normalize();
+  const rightDir = new THREE.Vector3(forwardDir.z, 0, -forwardDir.x);
+  const offset = rightDir.multiplyScalar(spec.side || 1).multiplyScalar(0.5).add(forwardDir.clone().multiplyScalar(spec.forward || 0));
+  group.rotation.y = Math.atan2(forwardDir.x, forwardDir.z);
+  scene.add(group);
+  return { group, offset };
+}
+
+// Lobby-emote hand props (optional backlog step, "if cheap": hold the prop
+// during the matching emote). Built once per pick alongside the ground rig
+// above and parented to the matching forearm's elbow group (world.js's
+// makeArmRefined/buildRefinedCamper expose elbowL/elbowR in userData.parts),
+// so it inherits that whole limb's rotation -- both the fixed idle elbow
+// bend and animateEmote's own shoulder-pivot animation -- for free; nothing
+// here has to re-track the hand per frame, only toggle .visible. Skipped for
+// Perry (tossing single puffs, not the bag), Johnny D (throwing motion,
+// no separate single-bean-bag mesh), and Brian R (skis were not asked to be
+// held); Scott K's helmet is handled separately below since it swaps onto
+// the head, not a hand.
+const HELD_PROP_BUILDERS = {
+  "chris-occ": { build: buildGuitar, arm: "armR", pos: [0, -0.16, 0.1], rot: [1.3, 0, 0.25] },
+  "razoo": { build: buildTrumpet, arm: "armR", pos: [0.04, -0.32, 0.09], rot: [0, 0.15, 0] },
+  "tom-s": { build: buildCoffeeMug, arm: "armR", pos: [0, -0.3, 0.05], rot: [0, 0, 0] },
+  "bryan-j": { build: buildBourbonGlass, arm: "armR", pos: [0, -0.3, 0.05], rot: [0, 0, 0] },
+  "spitty": { build: buildYogurtCup, arm: "armL", pos: [0, -0.3, 0.05], rot: [0, 0, 0] },
+};
+// Local Y offset (within the head group) that lands a hat at the same spot
+// world.js's own cap does -- matches world.js's CAP_Y (NECK_H + HEAD_R*2 -
+// 0.08 = 0.03 + 0.34 - 0.08); not exported, so kept in sync here by value.
+const CAP_Y_OFFSET = 0.29;
+
 // Player and crew. Rebuilt when a different camper is picked on the title screen.
 let player = null;
 let campers = [];
+let propRigs = {};   // camper id -> { group, base, offset, hideWhenGone }
 function buildCrew(data) {
   if (player) scene.remove(player.mesh);
   campers.forEach((c) => { scene.remove(c.mesh); scene.remove(c.chairMesh); if (c.bubble.el) c.bubble.el.remove(); });
+  Object.values(propRigs).forEach((rig) => scene.remove(rig.group));
+  propRigs = {};
   ui.bubbles.innerHTML = "";
   resetTouchSpeech();
   actionRing.visible = false;
@@ -420,12 +585,71 @@ function buildCrew(data) {
       bubble: { text: "", until: 0, cls: "" },
     };
     if (c.state === "away") mesh.visible = false;
+    const spec = PROP_BUILDERS[cd.id];
+    if (spec) {
+      const base = chair.clone();   // snapshot before any scoot/bear-reassignment ever touches this camper's chair
+      const { group, offset } = placePropAtChair(spec, base);
+      propRigs[cd.id] = { group, base, offset, hideWhenGone: !!spec.takesToBed };
+    }
     return c;
   });
-  window.__aij = { state, player, campers, keys, renderer, camera, press: () => { spacePressed = true; }, speed: (window.__aij && window.__aij.speed) || 1, cfg: { FIRE, WIND, CAMPER, BEAR, EVENTS, PLAYER, LAYOUT, SMOKE, POWERUPS, KEG, HEAT, HEADLAMP, DIFFICULTY },
+  // Scott K's flight helmet doubles as a lobby-emote prop (Black Hawk): built
+  // once per pick, parented to his own head so it inherits the head's tilt,
+  // hidden by default and only shown (with his cap swapped off) in
+  // animateEmote below. Skipped for any other pick.
+  player.helmetMesh = null;
+  if (data.id === "scott-k") {
+    const helmet = buildFlightHelmet();
+    // buildFlightHelmet() is authored for the ground rig (sitting upright,
+    // visor facing outward at ground height); worn on the head the visor
+    // needs to drop down and forward over the eyes or it just reads as a
+    // plain dome. helmet.children is [shell, visor] (see buildFlightHelmet).
+    helmet.children[1].position.y -= 0.05;
+    helmet.children[1].position.z += 0.025;
+    helmet.scale.setScalar(1.12);
+    helmet.visible = false;
+    // Sits lower than CAP_Y_OFFSET on purpose: the ground rig's dome only
+    // spans from its own ground contact up to its crown (its full height),
+    // so anchoring it at cap height leaves the whole thing floating above
+    // the face with nothing at eye level. Dropping it here brings the
+    // visor down near the brow instead of sitting like a snug beanie.
+    helmet.position.y = 0.18;
+    helmet.position.z = 0.01;
+    player.mesh.userData.parts.head.add(helmet);
+    player.helmetMesh = helmet;
+  }
+  // Lobby-emote hand prop (see HELD_PROP_BUILDERS above): same idea, parented
+  // to the matching arm's elbow instead of the head.
+  player.heldProp = null;
+  const heldSpec = HELD_PROP_BUILDERS[data.id];
+  if (heldSpec) {
+    const held = heldSpec.build();
+    held.position.set(...heldSpec.pos);
+    held.rotation.set(...heldSpec.rot);
+    held.visible = false;
+    player.mesh.userData.parts[heldSpec.arm === "armL" ? "elbowL" : "elbowR"].add(held);
+    player.heldProp = held;
+  }
+  // Johnny D's lobby emote (Bryan 09/27): a bean bag tossed hand to hand. The bag
+  // lives on the figure's root so it can arc between the hands.
+  player.juggleBag = null;
+  if (data.id === "johnny-d") {
+    const bag = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.06, 0.15), new THREE.MeshLambertMaterial({ color: "#1d3557", flatShading: true }));
+    bag.castShadow = true; bag.visible = false;
+    player.mesh.add(bag);
+    player.juggleBag = bag;
+    player.elbowIdle = [player.mesh.userData.parts.elbowL?.rotation.x ?? 0, player.mesh.userData.parts.elbowR?.rotation.x ?? 0];
+  }
+  window.__aij = { state, player, campers, propRigs, cornholeMesh, keys, renderer, camera, press: () => { spacePressed = true; }, speed: (window.__aij && window.__aij.speed) || 1, cfg: { FIRE, WIND, CAMPER, BEAR, EVENTS, PLAYER, LAYOUT, SMOKE, POWERUPS, KEG, HEAT, HEADLAMP, DIFFICULTY },
     // Headless stepping for tuning runs: advances the logic without waiting for animation frames
     step: (dt, n) => { for (let i = 0; i < n && state.phase === "playing"; i++) { update(dt); if (window.__aij.bot) window.__aij.bot(dt); } return state.phase; },
-    start: () => { if (state.phase === "start") goToLobby(); if (state.phase === "select") startNight(); return state.phase; } };
+    start: () => { if (state.phase === "start") goToLobby(); if (state.phase === "select") startNight(); return state.phase; },
+    // Dev/test hook for the truck feature: jumps state.t to just past MIDNIGHT_MIN
+    // (gameMinutes()'s inverse, minutesToT(), already exists above for the
+    // can-beer/no-glass event windows) so updateMidnight() fires on the very next
+    // update(). Does not itself call update() -- the caller's own step()/rAF loop
+    // does that, same as any other state.t change.
+    forceMidnight: () => { state.t = minutesToT(MIDNIGHT_MIN) + 0.05; return state.t; } };
 }
 buildCrew(playerData);
 
@@ -625,6 +849,18 @@ function startNight() {
   document.getElementById("hud").hidden = false;
   state.phase = "playing";
   resetPose(player.mesh);
+  // animateEmote only runs during the lobby (updateCamera's "select" branch),
+  // so its own per-frame resets stop the instant this leaves "select" -- clear
+  // any lobby-emote hold/swap here or the player would carry a floating prop,
+  // or spawn helmeted, for the rest of the night.
+  if (player.heldProp) player.heldProp.visible = false;
+  if (player.juggleBag) {
+    player.juggleBag.visible = false;
+    const pp = player.mesh.userData.parts;
+    if (pp.elbowL) pp.elbowL.rotation.x = player.elbowIdle[0];
+    if (pp.elbowR) pp.elbowR.rotation.x = player.elbowIdle[1];
+  }
+  if (player.helmetMesh) { player.helmetMesh.visible = false; const p = player.mesh.userData.parts; if (p.cap) p.cap.visible = true; }
   player.pos.set(0, 0, 4.6);
   player.mesh.position.copy(player.pos);
   say(`${player.data.name}, it's 9 PM. Keep the fire going until 5:30.`, 6);
@@ -933,18 +1169,26 @@ function animateEmote(pl, t) {
   resetPose(m);
   m.position.copy(pl.pos);
   m.rotation.y = 0; // face the camera
+  // Signature-prop hold (backlog step 4, "if cheap"): reset every frame, same
+  // as the pose above, so switching picks in the lobby never leaves a prop or
+  // a swapped helmet stuck showing on whoever is picked next.
+  if (pl.heldProp) pl.heldProp.visible = false;
+  if (pl.helmetMesh) { pl.helmetMesh.visible = false; if (p.cap) p.cap.visible = true; }
   const bob = Math.sin(t * 3) * 0.04;
   switch (pl.data.id) {
     case "tom-s": // coffee mug sip: right arm up to the mouth, head tips back
       p.armR.rotation.x = -1.7 + Math.sin(t * 2) * 0.25; p.armR.rotation.z = -0.5;
-      p.head.rotation.x = -0.15 + Math.sin(t * 2) * 0.12; m.position.y = bob; break;
-    case "chris-occ": // air guitar
+      p.head.rotation.x = -0.15 + Math.sin(t * 2) * 0.12; m.position.y = bob;
+      if (pl.heldProp) pl.heldProp.visible = true; break;
+    case "chris-occ": // air guitar -- now a real one, held against the body
       p.armL.rotation.x = -1.2; p.armL.rotation.z = 0.5;
       p.armR.rotation.x = -0.9 + Math.sin(t * 12) * 0.35; p.armR.rotation.z = -0.3;
-      m.rotation.y = Math.sin(t * 1.5) * 0.35; m.position.y = Math.abs(Math.sin(t * 6)) * 0.08; break;
+      m.rotation.y = Math.sin(t * 1.5) * 0.35; m.position.y = Math.abs(Math.sin(t * 6)) * 0.08;
+      if (pl.heldProp) pl.heldProp.visible = true; break;
     case "bryan-j": // bourbon toast
       p.armR.rotation.z = -2.3 + Math.sin(t * 3) * 0.12; p.armR.rotation.x = -0.4;
-      m.rotation.z = Math.sin(t * 1.5) * 0.06; m.position.y = bob; break;
+      m.rotation.z = Math.sin(t * 1.5) * 0.06; m.position.y = bob;
+      if (pl.heldProp) pl.heldProp.visible = true; break;
     case "brian-r": // pond ski: crouch, arms back, lean
       m.scale.set(1, 0.85, 1); p.armL.rotation.x = 1.0; p.armR.rotation.x = 1.0;
       p.body.rotation.x = 0.25; p.head.rotation.x = 0.15;
@@ -952,21 +1196,48 @@ function animateEmote(pl, t) {
     case "perry-s": { // cheese puff toss into the mouth
       const k = (t * 1.4) % 1; const toss = k < 0.5 ? -0.6 - k * 3.2 : -2.2 + (k - 0.5) * 3.2;
       p.armR.rotation.x = toss; p.head.rotation.x = -0.35; m.position.y = bob; break; }
-    case "johnny-d": { // cornhole toss: underhand swing
-      const k = (t * 1.1) % 1; const swing = k < 0.4 ? 0.9 - k * 7 : k < 0.6 ? -1.9 : -1.9 + (k - 0.6) * 7;
-      p.armR.rotation.x = swing; m.rotation.y = -0.4 + Math.min(0.6, Math.max(0, (k - 0.3))) * 0.8;
-      m.position.y = k > 0.35 && k < 0.5 ? 0.06 : 0; break; }
+    case "johnny-d": { // bean bag tossed hand to hand (Bryan 09/27)
+      const k = (t * 0.85) % 1;               // one full left-right-left cycle
+      const half = k < 0.5 ? 0 : 1, u = (k % 0.5) * 2;
+      // Forearms forward, hands at belly height; the catching hand dips on the catch.
+      const dipL = half === 1 && u > 0.85 ? 0.12 : 0, dipR = half === 0 && u > 0.85 ? 0.12 : 0;
+      p.armL.rotation.x = -0.35 + dipL; p.armR.rotation.x = -0.35 + dipR;
+      p.armL.rotation.z = 0.12; p.armR.rotation.z = -0.12;
+      if (p.elbowL) p.elbowL.rotation.x = -1.1;
+      if (p.elbowR) p.elbowR.rotation.x = -1.1;
+      p.head.rotation.y = (half === 0 ? -1 : 1) * (u - 0.5) * 0.5;   // eyes follow the bag
+      m.position.y = bob * 0.5;
+      const bag = pl.juggleBag;
+      if (bag) {
+        m.updateMatrixWorld(true);
+        const handPos = (elbow) => {
+          let low = null;
+          elbow.children.forEach((ch) => { if (ch.isMesh && (!low || ch.position.y < low.position.y)) low = ch; });
+          return m.worldToLocal((low || elbow).getWorldPosition(new THREE.Vector3()));
+        };
+        const L = handPos(p.elbowL || p.armL), R = handPos(p.elbowR || p.armR);
+        const from = half === 0 ? L : R, to = half === 0 ? R : L;
+        bag.position.lerpVectors(from, to, u);
+        bag.position.y += 0.06 + 4 * u * (1 - u) * 0.36;
+        bag.position.z += 0.14;   // out in front of the chest, not through it
+        bag.rotation.set(u * 3.0, 0, u * 1.2);
+        bag.visible = true;
+      }
+      break; }
     case "spitty": // yogurt spoon
       p.armL.rotation.x = -1.3; p.armL.rotation.z = 0.35;
       p.armR.rotation.x = -1.2 + Math.sin(t * 5) * 0.55; p.armR.rotation.z = -0.4;
-      p.head.rotation.x = -0.1; m.position.y = bob; break;
+      p.head.rotation.x = -0.1; m.position.y = bob;
+      if (pl.heldProp) pl.heldProp.visible = true; break;
     case "razoo": // trumpet solo: both arms up front, lean back, bounce
       p.armL.rotation.x = -1.6; p.armR.rotation.x = -1.5; p.armL.rotation.z = 0.25; p.armR.rotation.z = -0.25;
       p.body.rotation.x = -0.15; p.head.rotation.x = -0.35 + Math.sin(t * 9) * 0.06;
-      m.position.y = Math.abs(Math.sin(t * 7)) * 0.07; break;
-    case "scott-k": // black hawk: arms out, spin, hover
+      m.position.y = Math.abs(Math.sin(t * 7)) * 0.07;
+      if (pl.heldProp) pl.heldProp.visible = true; break;
+    case "scott-k": // black hawk: arms out, spin, hover, helmet swapped in for his cap
       p.armL.rotation.z = -1.5; p.armR.rotation.z = 1.5;   // signs swapped 09/25: the old ones folded the arms behind his chest
-      m.rotation.y = t * 4.5; m.position.y = 0.35 + Math.sin(t * 2) * 0.12; break;
+      m.rotation.y = t * 4.5; m.position.y = 0.35 + Math.sin(t * 2) * 0.12;
+      if (pl.helmetMesh) { pl.helmetMesh.visible = true; if (p.cap) p.cap.visible = false; } break;
     default:
       m.position.y = bob;
   }
@@ -1100,12 +1371,14 @@ function update(dt) {
   updateHeat(dt);
   updateWind(dt);
   updateCampers(dt);
+  updateProps(dt);
   updateEvents(dt);
   updateSky(dt);
   updateHints(dt);
   updateBear(dt);
   animateBearWalk(dt);
   updateMidnight();
+  updateTruckArrival(dt);
   updateExpressions();
   checkEnd();
 }
@@ -1681,6 +1954,31 @@ function updateCampers(dt) {
       if (c) bubble(c, c.data.warm, 4, "");
     }
   }
+}
+
+// Signature-prop rigs (see PROP_BUILDERS/placePropAtChair above): re-derives
+// each prop's position every frame from its OWN captured base chair vector
+// and offset -- never from the owning camper's (mutable) c.chair/c.chairMesh
+// -- so a bear-ride-back reassignment elsewhere can never move or orphan one.
+// `propsScoot` mirrors the exact scoot formula updateCampers applies to every
+// chair (same wantScoot, same rate, same starting value), so props back away
+// from Hell's Anus in lockstep with the chairs beside them, without reading
+// any individual camper's `.scoot`.
+let propsScoot = 0;
+function updateProps(dt) {
+  const wantScoot = state.fire.hot ? 1 : 0;
+  propsScoot += (wantScoot - propsScoot) * Math.min(1, dt * 0.9);
+  Object.values(propRigs).forEach((rig) => {
+    const out = rig.base.clone().setLength(rig.base.length() + propsScoot * CAMPER.scootDistance);
+    rig.group.position.copy(out).add(rig.offset);
+  });
+  // Chris's guitar / Spitty's yogurt: gone the moment they actually walk off
+  // to bed, back the instant their state is anything else (seated again after
+  // a bear ride-back included) -- see docs/CAMPERS.md.
+  campers.forEach((c) => {
+    const rig = propRigs[c.data.id];
+    if (rig && rig.hideWhenGone) rig.group.visible = !(c.state === "walking" || c.state === "gone");
+  });
 }
 
 function applyPosture(c, dt) {
@@ -2300,20 +2598,152 @@ function scareBear() {
   }
 }
 
-// ---------- Midnight: Tom W arrives ----------
+// ---------- Midnight: Tom W's truck ----------
+// Rotates a local-space offset by the truck's current rotation.y and adds its
+// position, matching the same convention walkToward/rotation.y = atan2(x, z)
+// use everywhere else in this file (local +Z is forward). Kept general (any
+// mesh) in case a later pass wants it for something else.
+function localToWorld(mesh, lx, ly, lz) {
+  const c = Math.cos(mesh.rotation.y), s = Math.sin(mesh.rotation.y);
+  return new THREE.Vector3(mesh.position.x + lx * c + lz * s, mesh.position.y + ly, mesh.position.z - lx * s + lz * c);
+}
+// Shortest-path angle ease, so the final turn into the parking spot doesn't
+// ever spin the long way around.
+function easeAngle(cur, target, k) {
+  let diff = target - cur;
+  diff = ((diff + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
+  return cur + diff * Math.min(1, k);
+}
+// Positions the SpotLight, the two beam cones and the two lens glow sprites off
+// the truck's current transform, and sets their combined strength to k (0..1).
+// Called every frame the lights are anything other than fully off.
+function setTruckLights(k) {
+  truckLight.intensity = k * TRUCK.lightIntensity;
+  const originL = localToWorld(truckMesh, -TRUCK_GEOM.headlightX, TRUCK_GEOM.headlightY, TRUCK_GEOM.headlightZ);
+  const originR = localToWorld(truckMesh, TRUCK_GEOM.headlightX, TRUCK_GEOM.headlightY, TRUCK_GEOM.headlightZ);
+  const mid = originL.clone().add(originR).multiplyScalar(0.5);
+  const aim = localToWorld(truckMesh, 0, TRUCK_GEOM.headlightY - 0.2, TRUCK_GEOM.headlightZ + TRUCK.beamLength);
+  truckLight.position.copy(mid);
+  truckLightTarget.position.copy(aim);
+  const origins = [originL, originR];
+  const beamCenters = [
+    localToWorld(truckMesh, -TRUCK_GEOM.headlightX, TRUCK_GEOM.headlightY - 0.05, TRUCK_GEOM.headlightZ + TRUCK.beamLength * 0.5),
+    localToWorld(truckMesh, TRUCK_GEOM.headlightX, TRUCK_GEOM.headlightY - 0.05, TRUCK_GEOM.headlightZ + TRUCK.beamLength * 0.5),
+  ];
+  truckBeams.forEach((beam, i) => {
+    beam.position.copy(beamCenters[i]);
+    beam.rotation.y = truckMesh.rotation.y;
+    beam.material.opacity = 0.22 * k;
+    beam.visible = k > 0.01;
+  });
+  truckLensGlows.forEach((sp, i) => {
+    sp.position.copy(origins[i]);
+    sp.material.opacity = k > 0 ? k : TRUCK_PARK_GLOW;
+    sp.visible = true;
+  });
+}
+// Tom gets out at the truck door (the side facing camp, whichever way the
+// truck ended up parked) and walks to his chair -- the same "arriving" state
+// and walkToward() path every other arrival already uses, just started from
+// the truck instead of LAYOUT.roadEntry.
+function exitTomFromTruck(tom) {
+  const toOrigin = new THREE.Vector3(-truckMesh.position.x, 0, -truckMesh.position.z).normalize();
+  const doorPos = truckMesh.position.clone().add(toOrigin.multiplyScalar(TRUCK_GEOM.halfWidth + 0.35));
+  tom.mesh.visible = true;
+  tom.mesh.position.copy(doorPos);
+  tom.mesh.lookAt(0, 0, 0);
+  tom.state = "arriving";
+  bubble(tom, tom.data.warm, 6, "");
+  truckDoorThunk();
+}
 function updateMidnight() {
   if (state.midnightDone || gameMinutes() < MIDNIGHT_MIN) return;
   state.midnightDone = true;
   const tom = campers.find((c) => c.data.arrivesAtMidnight);
   if (!tom) return;
-  tom.mesh.visible = true;
-  tom.mesh.position.set(LAYOUT.roadEntry.x, 0, LAYOUT.roadEntry.z);
-  tom.state = "arriving";
+  const t = state.truck;
+  t.tom = tom;
+  t.phase = "approach";
+  t.timer = 0;
+  // Path: from well beyond the tree line (past LAYOUT.roadEntry, same general
+  // heading -- both off camera on purpose, same as roadEntry always was),
+  // around the OUTSIDE of every hazard on a radius-13.5 arc, then in to
+  // LAYOUT.truckPark on the left. The final position/heading get hard-set the
+  // moment the drive timer completes (below), so this path only has to get
+  // the sweep and the approach right, not land the tangent exactly.
+  //
+  // The arc's radius was picked, not guessed: the camper door (radius 7.9)
+  // and the trailer (10.6) sit only ~9 degrees apart in angle, and the cabin
+  // (10.3) and cabin door (7.5) only ~14 degrees apart -- two "walls" a
+  // moderate-radius path can't thread between without clipping one or the
+  // other (confirmed by sampling several tighter routes, all of which put the
+  // truck within 1 unit of the trailer or the cabin at some point while
+  // still on camera). Sampled at 2000 points along the final curve, this loop
+  // clears every hazard by 3.2+ units and never drops inside radius 9.8 (the
+  // ring is 3.3), holding steady even as the curve overshoots a little
+  // between control points.
+  const spawn = new THREE.Vector3(LAYOUT.roadEntry.x * 1.7, 0, LAYOUT.roadEntry.z * 1.7);
+  const road = new THREE.Vector3(LAYOUT.roadEntry.x, 0, LAYOUT.roadEntry.z);
+  const loopPoints = [];
+  for (let deg = 95; deg <= 235; deg += 20) {
+    const a = THREE.MathUtils.degToRad(deg);
+    loopPoints.push(new THREE.Vector3(Math.sin(a) * 13.5, 0, Math.cos(a) * 13.5));
+  }
+  const park = new THREE.Vector3(LAYOUT.truckPark.x, 0, LAYOUT.truckPark.z);
+  t.path = new THREE.CatmullRomCurve3([spawn, road, ...loopPoints, park], false, "catmullrom", 0.4);
+  // Drives up out of the ground (see truckMesh's setup above) to the spawn end
+  // of the path -- it was already rendering every frame, just buried at y=-30.
+  truckMesh.position.copy(t.path.getPointAt(0));
+  const tan0 = t.path.getTangentAt(0.001);
+  truckMesh.rotation.y = Math.atan2(tan0.x, tan0.z);
+  setTruckLights(0);
+  truckRumble();
+
+  // Ticker, comfort boost and happy faces all fire now, timed to when the
+  // headlights first show (Bryan's brief) rather than to when Tom actually
+  // reaches his chair, which now happens well after the truck parks.
   tom.comfort = CAMPER.startComfort;
-  bubble(tom, tom.data.warm, 6, "");
   campers.forEach((c) => { if (c.state === "seated" || c.state === "leaving") { c.comfort = Math.min(100, c.comfort + CAMPER.tomWComfortBoost); c.happyUntil = state.t + 5; } });
   say("Headlights on the road. Tom W made it.", 5);
   state.log.push("Tom W arrived at midnight");
+}
+// Drives the phase machine above every frame once updateMidnight() has kicked
+// it off: approach (driving in, headlights fading up) -> stopped (parked,
+// lights up on the campers a few seconds) -> fading (headlights down) -> done
+// (Tom is out and walking; the truck sits lit only by its dim parking glow for
+// the rest of the night, per Bryan's "lights off, maybe a dim parking light
+// glow is fine").
+function updateTruckArrival(dt) {
+  const t = state.truck;
+  if (t.phase === "idle" || t.phase === "done") return;
+  t.timer += dt;
+  if (t.phase === "approach") {
+    const lightK = Math.min(1, t.timer / TRUCK.lightsFadeInSeconds);
+    if (t.timer > TRUCK.lightsFadeInSeconds) {
+      const drive = Math.min(1, (t.timer - TRUCK.lightsFadeInSeconds) / (TRUCK.driveSeconds - TRUCK.lightsFadeInSeconds));
+      truckMesh.position.copy(t.path.getPointAt(drive));
+      const tan = t.path.getTangentAt(Math.max(0.001, Math.min(0.999, drive)));
+      truckMesh.rotation.y = easeAngle(truckMesh.rotation.y, Math.atan2(tan.x, tan.z), dt * 4);
+    }
+    setTruckLights(lightK);
+    if (t.timer >= TRUCK.driveSeconds) {
+      truckMesh.position.set(LAYOUT.truckPark.x, 0, LAYOUT.truckPark.z);
+      truckMesh.rotation.y = Math.atan2(-LAYOUT.truckPark.x, -LAYOUT.truckPark.z);   // nose toward the fire
+      setTruckLights(1);
+      t.phase = "stopped"; t.timer = 0;
+    }
+  } else if (t.phase === "stopped") {
+    setTruckLights(1);
+    if (t.timer >= TRUCK.litSeconds) { t.phase = "fading"; t.timer = 0; }
+  } else if (t.phase === "fading") {
+    const k = Math.max(0, 1 - t.timer / TRUCK.fadeOutSeconds);
+    setTruckLights(k);
+    if (t.timer >= TRUCK.fadeOutSeconds) {
+      setTruckLights(0);
+      exitTomFromTruck(t.tom);
+      t.phase = "done";
+    }
+  }
 }
 
 // ---------- End ----------

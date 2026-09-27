@@ -355,3 +355,47 @@ export function hissSteam() {
   const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(0.4, t0 + 0.05); g.gain.exponentialRampToValueAtTime(0.0001, t0 + 1.05);
   src.connect(f).connect(g).connect(ctx.destination); src.start(t0);
 }
+
+// ---------- Tom W's truck (midnight arrival) ----------
+// Engine rumble as the truck turns in off the road: two detuned saws through a
+// lowpass (same family as bearTheme's tuba/growl low voices above), with a slow
+// LFO wobbling the volume so it reads as an idling/rolling engine rather than a
+// held drone. Fades in over the headlights and settles out again, short per
+// Bryan's ask rather than lasting the whole drive-in.
+export function truckRumble() {
+  if (!ctx) return;
+  const t0 = ctx.currentTime;
+  const dur = 2.6;
+  const f = ctx.createBiquadFilter(); f.type = "lowpass"; f.frequency.setValueAtTime(260, t0); f.frequency.linearRampToValueAtTime(210, t0 + dur);
+  const out = ctx.createGain();
+  out.gain.setValueAtTime(0.0001, t0);
+  out.gain.exponentialRampToValueAtTime(0.22, t0 + 0.5);
+  out.gain.setValueAtTime(0.22, t0 + dur - 0.7);
+  out.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  const lfo = ctx.createOscillator(); lfo.type = "sine"; lfo.frequency.value = 7.5;
+  const lfoGain = ctx.createGain(); lfoGain.gain.value = 0.06;
+  lfo.connect(lfoGain).connect(out.gain);
+  [0, 6].forEach((cents) => {
+    const o = ctx.createOscillator(); o.type = "sawtooth"; o.frequency.setValueAtTime(58, t0); o.frequency.linearRampToValueAtTime(48, t0 + dur); o.detune.value = cents;
+    o.connect(f); o.start(t0); o.stop(t0 + dur + 0.1);
+  });
+  f.connect(out).connect(ctx.destination);
+  lfo.start(t0); lfo.stop(t0 + dur + 0.1);
+}
+// Door thunk as Tom W gets out: a low body thump plus a tiny metallic latch tick.
+export function truckDoorThunk() {
+  if (!ctx) return;
+  const t0 = ctx.currentTime;
+  const o = ctx.createOscillator(); const g = ctx.createGain();
+  o.type = "sine"; o.frequency.setValueAtTime(140, t0); o.frequency.exponentialRampToValueAtTime(55, t0 + 0.14);
+  g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(0.5, t0 + 0.012); g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.17);
+  o.connect(g).connect(ctx.destination); o.start(t0); o.stop(t0 + 0.2);
+  const len = Math.floor(ctx.sampleRate * 0.06);
+  const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3);
+  const src = ctx.createBufferSource(); src.buffer = buf;
+  const hp = ctx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 2200;
+  const g2 = ctx.createGain(); g2.gain.setValueAtTime(0.18, t0 + 0.015); g2.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.07);
+  src.connect(hp).connect(g2).connect(ctx.destination); src.start(t0 + 0.015);
+}

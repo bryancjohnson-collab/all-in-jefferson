@@ -4,10 +4,10 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
-import { LAYOUT, FIRE, REFINED_CAMPERS } from "./config.js?v=136";
-import { spawnModel, lerpColor, mulberry32, buildCabin, buildCooler, buildGasCan, buildCampChair, buildPokerStick } from "./props.js?v=136";
-import { buildTravelTrailer } from "./trailer.js?v=136";
-import { buildFire } from "./fire.js?v=136";
+import { LAYOUT, FIRE, REFINED_CAMPERS } from "./config.js?v=140";
+import { spawnModel, lerpColor, mulberry32, buildCabin, buildCooler, buildGasCan, buildCampChair, buildPokerStick } from "./props.js?v=140";
+import { buildTravelTrailer } from "./trailer.js?v=140";
+import { buildFire } from "./fire.js?v=140";
 
 export function buildWorld(canvas) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });

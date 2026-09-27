@@ -232,6 +232,25 @@ export const HEADLAMP = {
   distance: 8.5,
 };
 
+// Tom W's truck at midnight (added for the truck-arrival feature): timing for the
+// headlights-first -> drive-in -> park-and-light -> lights-off sequence. Geometry
+// (body color, lens/tail-light positions) lives in src/truck.js's TRUCK_GEOM so
+// the two never drift apart. lightIntensity is candela-scale, same family as
+// HEADLAMP.intensity/fireLight above (a pre-r155-style "2-ish" would be invisible
+// next to them).
+export const TRUCK = {
+  driveSeconds: 10.5,         // spawn point (beyond the tree line) to LAYOUT.truckPark, a wide loop around the outside of every hazard to the left-side spot
+  lightsFadeInSeconds: 1.3,   // headlights visible before the truck starts moving
+  litSeconds: 3.4,            // stopped, lights up, sweeping/lighting the campers
+  fadeOutSeconds: 1.1,        // headlights fade to off before Tom gets out
+  lightColor: "#fff3d6",
+  lightIntensity: 260,
+  lightAngle: 0.5,
+  lightPenumbra: 0.5,
+  lightDistance: 16,
+  beamLength: 7,              // how far forward the visible beam cones reach
+};
+
 // Phone-only gentle camera follow (Bryan: "cam in a little", then a follow so the
 // wood pile/gas/cooler/stick come fully into view). Works in screen space:
 // every frame the player's feet+head and the current action target's whole
@@ -269,4 +288,20 @@ export const LAYOUT = {
   // from origin (~7.6) is just past PLAYER.maxRadius (7.2) but within reach of a
   // player standing at the boundary, same as the cabin/camper doors themselves.
   pallet: { x: -5.1, z: -5.7 },
+  // Tom W's truck (midnight arrival feature): parks on the LEFT, past the gas
+  // can/cooler/pallet cluster, beyond the cabin's near side (radius ~9.8). Not
+  // the right side on purpose: every right-side spot at a radius the fixed
+  // camera (0, 5.5, 15) actually keeps on screen also falls inside "in front of
+  // the trailer," the yard reserved for cornhole boards -- confirmed by
+  // projecting candidates through the camera's own matrices, not eyeballing it
+  // (see the truck feature's report). This spot clears cabinDoor by ~3.3,
+  // gasCan by ~6.9, cooler by ~4.8, pallet by ~5.0, and the bear corridor by
+  // ~9.6, and it's ~155px onto the canvas from the left edge at 1440x900, not
+  // clipped. Final parked heading faces the origin (see updateTruckArrival in
+  // game.js) so the headlights sweep the campers before they switch off.
+  truckPark: { x: -9.3, z: -3.0 },
+  // Johnny D's cornhole boards: off to the left side (Bryan 09/27), outside the
+  // walkable radius, clear of the gas can and of Tom W's road on the right.
+  // `rot` turns the pair so it runs along the edge of the clearing.
+  cornhole: { x: -6.6, z: 5.2, gap: 3.0, rot: 0.75 },
 };

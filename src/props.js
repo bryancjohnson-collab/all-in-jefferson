@@ -4,6 +4,7 @@
 // the kit's pastel defaults match the firelit night look.
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 
 const MODEL_DIR = "assets/models/";
 const loader = new GLTFLoader();
@@ -389,4 +390,218 @@ export function buildPokerStick() {
   tip.position.y = len3 / 2 + 0.045;
   seg3.add(tip);
   return root;
+}
+
+// ---------- Signature props (backlog item, campers.js/docs/CAMPERS.md) ----------
+// Each camper's hand prop for the fire circle. Built standing/lying at a
+// neutral orientation with its ground-contact point at local y=0, so
+// game.js's placement code (buildCrew's propRigs) only has to set
+// position/rotation on the returned group, never reach inside it. Every
+// group is chunky low-poly, flat-shaded (lambert()/basic() from above), and
+// merges same-material parts into one BufferGeometry so a prop with several
+// visual pieces still costs one draw call per color, not one per box.
+
+// Chris Occ: acoustic guitar, built upright (neck up +Y) so leaning it against
+// a chair back is just a rotation.x tilt applied by the caller.
+export function buildGuitar() {
+  const g = new THREE.Group();
+  const wood = lambert("#8a5a2b"), dark = lambert("#2a1c12");
+  // Figure-8 body: two flattened, overlapping cylinders (upper bout smaller,
+  // lower bout bigger), merged into one wood-colored mesh.
+  const upperBout = new THREE.CylinderGeometry(0.13, 0.13, 0.06, 10);
+  upperBout.rotateX(Math.PI / 2); upperBout.translate(0, 0.30, 0);
+  const lowerBout = new THREE.CylinderGeometry(0.175, 0.175, 0.07, 10);
+  lowerBout.rotateX(Math.PI / 2); lowerBout.translate(0, 0.12, 0);
+  const neckGeo = new THREE.BoxGeometry(0.045, 0.42, 0.03);
+  neckGeo.translate(0, 0.62, 0);
+  const headstockGeo = new THREE.BoxGeometry(0.09, 0.09, 0.025);
+  headstockGeo.translate(0, 0.85, 0);
+  const body = new THREE.Mesh(mergeGeometries([upperBout, lowerBout, neckGeo, headstockGeo]), wood);
+  body.castShadow = true;
+  // Dark accents: soundhole ring, fretboard strip, two tuning-peg blobs.
+  const soundhole = new THREE.CylinderGeometry(0.055, 0.055, 0.02, 10);
+  soundhole.rotateX(Math.PI / 2); soundhole.translate(0, 0.22, 0.05);
+  const fretboard = new THREE.BoxGeometry(0.05, 0.4, 0.012);
+  fretboard.translate(0, 0.62, 0.022);
+  const pegL = new THREE.BoxGeometry(0.03, 0.03, 0.05); pegL.translate(-0.06, 0.85, 0);
+  const pegR = new THREE.BoxGeometry(0.03, 0.03, 0.05); pegR.translate(0.06, 0.85, 0);
+  const accents = new THREE.Mesh(mergeGeometries([soundhole, fretboard, pegL, pegR]), dark);
+  g.add(body, accents);
+  g.position.y = 0.055;   // lifts the lower bout's (flattened, rotated) bottom edge to the ground
+  return g;
+}
+
+// Razoo: trumpet, laid on its side on the ground (bell to the right, +X).
+// Every part is the same brass tone, so the whole thing is one draw call.
+export function buildTrumpet() {
+  const brass = lambert("#c9a227");
+  const bell = new THREE.CylinderGeometry(0.075, 0.022, 0.22, 10);
+  bell.rotateZ(Math.PI / 2); bell.translate(0.30, 0, 0);
+  const leadpipe = new THREE.CylinderGeometry(0.022, 0.022, 0.3, 8);
+  leadpipe.rotateZ(Math.PI / 2); leadpipe.translate(0.03, 0, 0);
+  const mouthpipe = new THREE.CylinderGeometry(0.012, 0.017, 0.1, 6);
+  mouthpipe.rotateZ(Math.PI / 2); mouthpipe.translate(-0.18, 0, 0);
+  const valve = (x) => { const v = new THREE.CylinderGeometry(0.026, 0.026, 0.11, 7); v.translate(x, 0.07, 0); return v; };
+  const loop = (x) => { const l = new THREE.TorusGeometry(0.05, 0.014, 5, 10, Math.PI); l.rotateY(Math.PI / 2); l.translate(x, 0.14, 0); return l; };
+  const parts = [bell, leadpipe, mouthpipe, valve(-0.09), valve(-0.02), valve(0.05), loop(-0.09), loop(-0.02), loop(0.05)];
+  const horn = new THREE.Mesh(mergeGeometries(parts), brass);
+  horn.castShadow = true;
+  const g = new THREE.Group();
+  g.add(horn);
+  g.position.y = 0.075;   // resting on the widest tube radius
+  return g;
+}
+
+// Bryan J: lowball bourbon glass, big ice cube, amber pour ("his line mentions
+// big ice and bourbon"). Three single-shape meshes (no merge needed).
+export function buildBourbonGlass() {
+  const g = new THREE.Group();
+  // First pass had the amber pour as a thin layer fully enclosed by an
+  // opaque "glass" cylinder, so it never actually showed (a solid outer
+  // wall hides whatever is inside it). Rebuilt so the pour IS the visible
+  // body -- a real rocks-glass measure, not a sliver -- with the glass
+  // itself reduced to a thin rim top and foot bottom that read without
+  // hiding it, and the ice cube offset to one side instead of dead center.
+  const bourbon = new THREE.Mesh(new THREE.CylinderGeometry(0.072, 0.066, 0.11, 12), lambert("#b5651d"));
+  bourbon.position.y = 0.055; bourbon.castShadow = true;
+  const rim = new THREE.TorusGeometry(0.074, 0.009, 6, 12);
+  rim.rotateX(Math.PI / 2); rim.translate(0, 0.11, 0);
+  const foot = new THREE.CylinderGeometry(0.078, 0.078, 0.012, 12);
+  foot.translate(0, 0.006, 0);
+  const glassMesh = new THREE.Mesh(mergeGeometries([rim, foot]), lambert("#dbe7ef"));
+  const ice = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.05), lambert("#eaf4fa"));
+  ice.position.set(0.03, 0.1, -0.015); ice.rotation.y = 0.5;
+  g.add(bourbon, glassMesh, ice);
+  return g;
+}
+
+// Spitty: Bologna Yogurt cup with a spoon standing in it.
+export function buildYogurtCup() {
+  const g = new THREE.Group();
+  const cupMat = lambert("#f4c9d6");
+  const cup = new THREE.CylinderGeometry(0.075, 0.06, 0.1, 10);
+  cup.translate(0, 0.05, 0);
+  const lid = new THREE.CylinderGeometry(0.078, 0.078, 0.015, 10);
+  lid.translate(0, 0.1, 0);
+  const cupMesh = new THREE.Mesh(mergeGeometries([cup, lid]), cupMat);
+  cupMesh.castShadow = true;
+  const spoonMat = lambert("#c7cdd2");
+  const handle = new THREE.CylinderGeometry(0.008, 0.008, 0.22, 6);
+  handle.rotateX(-0.5); handle.translate(0, 0.19, -0.05);
+  const bowl = new THREE.SphereGeometry(0.03, 8, 6);
+  bowl.scale(1, 0.6, 1.4); bowl.translate(0, 0.285, -0.14);
+  const spoon = new THREE.Mesh(mergeGeometries([handle, bowl]), spoonMat);
+  g.add(cupMesh, spoon);
+  return g;
+}
+
+// Perry S: a bag of "Great Value"-style cheese puffs. Bryan's ask: no logo,
+// just color blocks (a blue main bag, a crimped yellow top fold) so it reads
+// as a generic chip bag, not the real brand.
+export function buildCheesePuffsBag() {
+  const g = new THREE.Group();
+  const bag = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.3, 0.075), lambert("#2f6fb0"));
+  bag.position.y = 0.15; bag.castShadow = true;
+  const fold = new THREE.Mesh(new THREE.BoxGeometry(0.19, 0.07, 0.05), lambert("#f2b705"));
+  fold.position.y = 0.315; fold.rotation.z = 0.12;
+  g.add(bag, fold);
+  return g;
+}
+
+// Tom S: camp coffee mug (his emote is "Coffee Mug Sip"). Enamelware red,
+// body and handle merged into a single draw call.
+export function buildCoffeeMug() {
+  const mat = lambert("#a13d3d");
+  const body = new THREE.CylinderGeometry(0.055, 0.048, 0.11, 10);
+  body.translate(0, 0.055, 0);
+  const handle = new THREE.TorusGeometry(0.045, 0.012, 6, 10, Math.PI * 1.3);
+  handle.rotateZ(Math.PI / 2); handle.rotateY(Math.PI / 2); handle.translate(0.065, 0.06, 0);
+  const mug = new THREE.Mesh(mergeGeometries([body, handle]), mat);
+  mug.castShadow = true;
+  const g = new THREE.Group();
+  g.add(mug);
+  return g;
+}
+
+// Brian R: a pair of water skis, bright and chunky, leaning against the back
+// of his chair ("Remember when I skied the pond?"). Built flat (lying along
+// +Y, tips up) so leaning is a rotation.x tilt, same convention as the guitar.
+export function buildWaterSkis() {
+  const g = new THREE.Group();
+  // A lighter orange (first pass, #ff6b35) blew out to near-white this close
+  // to the fire and key light; this deeper red-orange keeps its color at the
+  // same exposure while still reading as bright and chunky.
+  const skiColor = lambert("#d9481c"), bindingColor = lambert("#1c1c1c");
+  function ski(x) {
+    const board = new THREE.BoxGeometry(0.11, 0.9, 0.02);
+    board.translate(x, 0.45, 0);
+    const tip = new THREE.ConeGeometry(0.078, 0.16, 4);
+    tip.scale(1, 1, 0.35); tip.rotateX(Math.PI); tip.rotateY(Math.PI / 4);
+    tip.translate(x, 0.97, 0);
+    return [board, tip];
+  }
+  const boards = new THREE.Mesh(mergeGeometries([...ski(-0.09), ...ski(0.09)]), skiColor);
+  boards.castShadow = true;
+  const binding = (x) => { const b = new THREE.BoxGeometry(0.1, 0.05, 0.12); b.translate(x, 0.35, 0.01); return b; };
+  const bindings = new THREE.Mesh(mergeGeometries([binding(-0.09), binding(0.09)]), bindingColor);
+  g.add(boards, bindings);
+  return g;
+}
+
+// Scott K: a pilot's flight helmet ("I know how to ride Black Hawks better
+// than anyone"), olive drab shell with a dark tinted visor. Sits on the
+// ground beside his chair; also usable as a head-worn prop (game.js clones
+// it onto p.head for the Black Hawk lobby emote).
+export function buildFlightHelmet() {
+  const g = new THREE.Group();
+  const shell = new THREE.Mesh(new THREE.SphereGeometry(0.115, 10, 8, 0, Math.PI * 2, 0, Math.PI * 0.62), lambert("#5c5a32"));
+  shell.position.y = 0.042; shell.castShadow = true;   // dome cut past the equator dips below its own center; this lifts its rim to the ground
+  const visor = new THREE.Mesh(new THREE.SphereGeometry(0.09, 10, 6, 0, Math.PI * 2, 0, Math.PI * 0.4), lambert("#1a2226"));
+  visor.position.set(0, 0.105, 0.04); visor.rotation.x = -0.25;
+  g.add(shell, visor);
+  return g;
+}
+
+// Johnny D: a pair of cornhole boards facing each other with a few bean bags
+// scattered between/beside them ("Going live on cornhole!"). Too big for the
+// fire ring, so this builds BOTH boards as one fixed-layout group meant to
+// be placed once in world space (not per-chair like the props above): world.js
+// adds it directly at LAYOUT.cornhole. `gap` is the distance between the two
+// boards' front (playing) edges, laid out along local +Z with each board
+// facing the other (rotated 180 degrees apart).
+export function buildCornholeSet(gap = 3.6) {
+  const g = new THREE.Group();
+  const wood = lambert("#c8923f"), dark = lambert("#241c14"), bagColor = lambert("#1d3557");
+  // One board, built canonically with its raised/hole end at local +Z and its
+  // low legs at local -Z, resting on y=0. `placedBoard` then translates it to
+  // one side of the gap and, for the far board, rotates it 180 degrees first
+  // so the two hole ends face each other across the gap.
+  function boardGeo() {
+    const ramp = new THREE.BoxGeometry(0.6, 0.04, 0.9);
+    ramp.rotateX(-0.19); ramp.translate(0, 0.2, 0.18);
+    const legGeo = new THREE.CylinderGeometry(0.018, 0.018, 0.4, 6);
+    const legL = legGeo.clone(); legL.translate(-0.24, 0.2, -0.3);
+    const legR = legGeo.clone(); legR.translate(0.24, 0.2, -0.3);
+    const hole = new THREE.CylinderGeometry(0.07, 0.07, 0.01, 10);
+    hole.rotateX(-0.19); hole.translate(0, 0.395, 0.42);
+    return { wood: [ramp, legL, legR], hole };
+  }
+  function placedBoard(z, flip) {
+    const b = boardGeo();
+    const all = [...b.wood, b.hole];
+    all.forEach((geo) => { if (flip) geo.rotateY(Math.PI); geo.translate(0, 0, z); });
+    return b;
+  }
+  const b1 = placedBoard(-gap / 2, false);
+  const b2 = placedBoard(gap / 2, true);
+  const woodMesh = new THREE.Mesh(mergeGeometries([...b1.wood, ...b2.wood]), wood);
+  woodMesh.castShadow = true;
+  const holeMesh = new THREE.Mesh(mergeGeometries([b1.hole, b2.hole]), dark);
+  const bagGeo = (x, z, ry) => { const bg = new THREE.BoxGeometry(0.16, 0.05, 0.16); bg.rotateY(ry); bg.translate(x, 0.025, z); return bg; };
+  const bags = new THREE.Mesh(mergeGeometries([
+    bagGeo(-0.4, -gap / 2 + 0.55, 0.3), bagGeo(-0.25, -gap / 2 + 0.7, -0.2), bagGeo(0.35, -gap / 2 + 0.6, 0.1),
+    bagGeo(0.4, gap / 2 - 0.55, 0.4), bagGeo(-0.3, gap / 2 - 0.65, -0.3),
+  ]), bagColor);
+  g.add(woodMesh, holeMesh, bags);
+  return g;
 }
