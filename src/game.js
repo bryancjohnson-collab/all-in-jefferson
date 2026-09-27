@@ -1,16 +1,16 @@
 // All In Jefferson, prototype 1: the fire loop on a flat plane with box campers.
 import * as THREE from "three";
-import { NIGHT_SECONDS, NIGHT_START_MIN, NIGHT_END_MIN, MIDNIGHT_MIN, FIRE, WIND, CAMPER, BEAR, PLAYER, LAYOUT, POWERUPS, EVENTS, HOT_LEVELS, SMOKE, DIFFICULTY, HINTS, PHONE_FOLLOW, KEG, HEAT, HEADLAMP } from "./config.js?v=135";
-import { initSound, coyoteYip, whoosh, growl, bang, startCrackle, setCrackle, footstep, logLand, pokeSound, buzz, playIntroThenLoop, startLoop, stopMusic, playDawn, toggleMusic, musicEnabled, musicActive, bearTheme, bearRideTheme, bearWomp, duckMusic, hissSteam } from "./sound.js?v=135";
-import { campers as roster, pickPlayer, commitPick, snacks, emotes, comments, coolerComments, kegCheers, kegFireYell } from "./campers.js?v=135";
-import { buildWorld, makeCamperMesh, makeChairMesh, makeLogMesh, makePalletMesh, setSeated, stepWalkCycle, stepBearWalk, SEATED_DROP, setExpression } from "./world.js?v=135";
-import { buildMiniKeg } from "./props.js?v=135";
-import { updateFireVisuals } from "./fire.js?v=135";
-import { initShareCardButtons } from "./sharecard.js?v=135";
+import { NIGHT_SECONDS, NIGHT_START_MIN, NIGHT_END_MIN, MIDNIGHT_MIN, FIRE, WIND, CAMPER, BEAR, PLAYER, LAYOUT, POWERUPS, EVENTS, HOT_LEVELS, SMOKE, DIFFICULTY, HINTS, PHONE_FOLLOW, KEG, HEAT, HEADLAMP } from "./config.js?v=136";
+import { initSound, coyoteYip, whoosh, growl, bang, startCrackle, setCrackle, footstep, logLand, pokeSound, buzz, playIntroThenLoop, startLoop, stopMusic, playDawn, toggleMusic, musicEnabled, musicActive, bearTheme, bearRideTheme, bearWomp, duckMusic, hissSteam } from "./sound.js?v=136";
+import { campers as roster, pickPlayer, commitPick, snacks, emotes, comments, coolerComments, kegCheers, kegFireYell } from "./campers.js?v=136";
+import { buildWorld, makeCamperMesh, makeChairMesh, makeLogMesh, makePalletMesh, setSeated, stepWalkCycle, stepBearWalk, SEATED_DROP, setExpression } from "./world.js?v=136";
+import { buildMiniKeg } from "./props.js?v=136";
+import { updateFireVisuals } from "./fire.js?v=136";
+import { initShareCardButtons } from "./sharecard.js?v=136";
 
 const canvas = document.getElementById("scene");
 const world = buildWorld(canvas);
-const { renderer, scene, camera, fireLight, keyLight, flames, sparks, coals, bear: bearMesh, streaks, don: donMesh, alan: alanMesh, bees: beesMesh, breath: breathMesh, gasCan, pitLogs, hintArrow, snackToken, stick: stickMesh, star: starMesh, starlink: starlinkMesh, trees, smoke, woodPile, pallet: palletMesh } = world;
+const { renderer, scene, camera, fireLight, keyLight, flames, sparks, coals, bear: bearMesh, streaks, don: donMesh, alan: alanMesh, bees: beesMesh, breath: breathMesh, gasCan, pitLogs, hintArrow, snackToken, stick: stickMesh, star: starMesh, starlink: starlinkMesh, trees, smoke, woodPile, pallet: palletMesh, updateSkyDome } = world;
 // Bundle for the single fire.js visual hook driven from render(): flame sprites,
 // sparks, the coal bed and the pit logs, all purely cosmetic and keyed off
 // state.fire's authoritative level/hot/hotTier.
@@ -2412,6 +2412,7 @@ function render(dt) {
   const sky = new THREE.Color("#0b1020").lerp(new THREE.Color("#e08a6a"), dawn);
   scene.background.copy(sky);
   scene.fog.color.copy(sky);
+  updateSkyDome(dawn, ft);
 
   // HUD
   ui.fireFill.style.width = `${(state.fire.level / FIRE.max) * 100}%`;

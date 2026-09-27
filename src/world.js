@@ -4,10 +4,10 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
-import { LAYOUT, FIRE, REFINED_CAMPERS } from "./config.js?v=135";
-import { spawnModel, lerpColor, mulberry32, buildCabin, buildCooler, buildGasCan, buildCampChair, buildPokerStick } from "./props.js?v=135";
-import { buildTravelTrailer } from "./trailer.js?v=135";
-import { buildFire } from "./fire.js?v=135";
+import { LAYOUT, FIRE, REFINED_CAMPERS } from "./config.js?v=136";
+import { spawnModel, lerpColor, mulberry32, buildCabin, buildCooler, buildGasCan, buildCampChair, buildPokerStick } from "./props.js?v=136";
+import { buildTravelTrailer } from "./trailer.js?v=136";
+import { buildFire } from "./fire.js?v=136";
 
 export function buildWorld(canvas) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -39,6 +39,10 @@ export function buildWorld(canvas) {
   const moon = new THREE.DirectionalLight("#8aa0d8", 0.56);
   moon.position.set(-8, 14, -6);
   scene.add(moon);
+
+  // Night sky: starfield + moon disc, both opt out of fog (far is 30, these live
+  // at radius ~80-85) and never touch scene lighting. See buildNightSky() below.
+  const { updateSkyDome } = buildNightSky(scene);
 
   // Lobby key light: only on while choosing a camper, so his front is lit
   const keyLight = new THREE.PointLight("#ffe2b8", 0, 0, 2);
@@ -415,7 +419,182 @@ export function buildWorld(canvas) {
   window.addEventListener("resize", resize);
   resize();
 
-  return { renderer, scene, camera, fireLight, keyLight, flames, embers, sparks, coals, bear, windArrow, streaks, don, alan, bees, breath, pitLogs, hintArrow, snackToken, stick, star, starlink, woodPile, gasCan, cooler, pallet, trees, smoke };
+  return { renderer, scene, camera, fireLight, keyLight, flames, embers, sparks, coals, bear, windArrow, streaks, don, alan, bees, breath, pitLogs, hintArrow, snackToken, stick, star, starlink, woodPile, gasCan, cooler, pallet, trees, smoke, updateSkyDome };
+}
+
+// Night sky: a starfield (one Points draw call: uniform hemisphere + a faint,
+// tilted Milky Way band folded into the same buffer, no second call) and a
+// moon (one Sprite: glow rings, disc and craters baked into a single canvas
+// texture, so it's a second draw call, not three). Twinkle runs entirely in
+// the vertex shader off a uTime uniform -- no per-frame CPU loop over stars.
+// Both materials set fog:false (fog far is 30; this geometry sits at radius
+// ~80-85) and depthWrite:false, so nearer opaque scenery (trees, cabin, ridge)
+// still occludes them correctly via the normal depth test, they just never
+// fade into the fog color themselves. renderOrder is very low so they paint
+// before other transparent effects (smoke, fire, the shooting star).
+function buildNightSky(scene) {
+  const STAR_COUNT = 3200;
+  const BAND_FRACTION = 0.16;   // fraction of the same buffer pulled into the Milky Way band
+  const RADIUS = 85;
+  const rand = mulberry32(20260927);
+
+  const positions = new Float32Array(STAR_COUNT * 3);
+  const sizes = new Float32Array(STAR_COUNT);
+  const bright = new Float32Array(STAR_COUNT);
+  const phase = new Float32Array(STAR_COUNT);
+  const speed = new Float32Array(STAR_COUNT);
+  const tint = new Float32Array(STAR_COUNT);
+
+  // Band tilted off the horizon so it reads as a diagonal streak, not a ring.
+  const bandAxis = new THREE.Vector3(0.42, 0.15, 1).normalize();
+  const bandQuat = new THREE.Quaternion().setFromAxisAngle(bandAxis, Math.PI / 2.1);
+  const p = new THREE.Vector3();
+
+  for (let i = 0; i < STAR_COUNT; i++) {
+    const inBand = i < STAR_COUNT * BAND_FRACTION;
+    if (inBand) {
+      const a = rand() * Math.PI * 2;
+      const spread = (rand() - 0.5) * 0.22;   // perpendicular scatter keeps the band tight/subtle
+      p.set(Math.cos(a), spread, Math.sin(a)).normalize().applyQuaternion(bandQuat);
+      if (p.y < 0.05) p.y = 0.05 + Math.abs(p.y) * 0.3;   // fold stragglers back above the horizon
+      p.normalize();
+    } else {
+      // Area-correct sampling over the upper hemisphere (uniform in u avoids
+      // the zenith-clumping a naive theta = u * PI/2 would give).
+      const theta = Math.acos(1 - rand());
+      const phi = rand() * Math.PI * 2;
+      p.set(Math.sin(theta) * Math.cos(phi), Math.cos(theta), Math.sin(theta) * Math.sin(phi));
+    }
+    positions[i * 3] = p.x * RADIUS;
+    positions[i * 3 + 1] = p.y * RADIUS;
+    positions[i * 3 + 2] = p.z * RADIUS;
+    sizes[i] = inBand ? (0.8 + rand() * 1.0) : (0.9 + rand() * rand() * 2.8);   // rand*rand: mostly small, a few standouts
+    bright[i] = inBand ? (0.22 + rand() * 0.22) : (0.32 + rand() * 0.68);
+    phase[i] = rand() * Math.PI * 2;
+    speed[i] = 0.4 + rand() * 1.1;
+    tint[i] = rand();
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute("aSize", new THREE.BufferAttribute(sizes, 1));
+  geo.setAttribute("aBright", new THREE.BufferAttribute(bright, 1));
+  geo.setAttribute("aPhase", new THREE.BufferAttribute(phase, 1));
+  geo.setAttribute("aSpeed", new THREE.BufferAttribute(speed, 1));
+  geo.setAttribute("aTint", new THREE.BufferAttribute(tint, 1));
+
+  const starMat = new THREE.ShaderMaterial({
+    uniforms: {
+      uTime: { value: 0 },
+      uFade: { value: 1 },
+      uPixelRatio: { value: Math.min(window.devicePixelRatio, 2) },
+    },
+    vertexShader: `
+      attribute float aSize;
+      attribute float aBright;
+      attribute float aPhase;
+      attribute float aSpeed;
+      attribute float aTint;
+      uniform float uTime;
+      uniform float uPixelRatio;
+      varying float vBright;
+      varying float vTint;
+      void main() {
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        float twinkle = 0.72 + 0.28 * sin(uTime * aSpeed + aPhase);
+        vBright = aBright * twinkle;
+        vTint = aTint;
+        gl_Position = projectionMatrix * mv;
+        gl_PointSize = aSize * uPixelRatio * (230.0 / -mv.z);   // Bryan 09/27: stars were too faint at 140
+      }
+    `,
+    fragmentShader: `
+      varying float vBright;
+      varying float vTint;
+      uniform float uFade;
+      void main() {
+        vec2 d = gl_PointCoord - 0.5;
+        float r = length(d) * 2.0;
+        float core = pow(smoothstep(1.0, 0.0, r), 0.9);
+        vec3 cool = vec3(0.75, 0.82, 1.0);
+        vec3 warm = vec3(1.0, 0.96, 0.9);
+        vec3 col = mix(cool, warm, vTint);
+        float a = min(1.0, core * vBright * 1.35) * uFade;
+        if (a < 0.01) discard;
+        gl_FragColor = vec4(col, a);
+      }
+    `,
+    transparent: true,
+    depthWrite: false,
+    fog: false,
+    toneMapped: false,
+    blending: THREE.AdditiveBlending,
+  });
+  const stars = new THREE.Points(geo, starMat);
+  stars.frustumCulled = false;   // huge radius (85); skip the auto bounds check
+  stars.renderOrder = -1000;
+  scene.add(stars);
+
+  // Moon: glow rings + disc + craters, all baked into one canvas so the whole
+  // moon is a single Sprite (one draw call, two triangles).
+  const moonCanvas = document.createElement("canvas");
+  moonCanvas.width = moonCanvas.height = 256;
+  const mctx = moonCanvas.getContext("2d");
+  const mcx = 128, mcy = 128;
+  // Flat, posterized halo rings -- chunky steps, not a smooth photoreal glow.
+  const haloStops = [[118, "rgba(210,225,255,0.05)"], [96, "rgba(210,225,255,0.10)"], [78, "rgba(220,230,255,0.16)"], [62, "rgba(230,238,255,0.22)"]];
+  for (const [r, color] of haloStops) {
+    mctx.beginPath(); mctx.arc(mcx, mcy, r, 0, Math.PI * 2);
+    mctx.fillStyle = color; mctx.fill();
+  }
+  mctx.beginPath(); mctx.arc(mcx, mcy, 46, 0, Math.PI * 2);
+  mctx.fillStyle = "#eef1f0"; mctx.fill();
+  // Craters: flat gray-blue blobs, hard edges, no gradient.
+  const craters = [[-14, -10, 10], [10, 6, 7], [-4, 16, 6], [16, -14, 5], [2, -2, 4]];
+  mctx.fillStyle = "rgba(150,160,168,0.55)";
+  for (const [dx, dy, r] of craters) { mctx.beginPath(); mctx.arc(mcx + dx, mcy + dy, r, 0, Math.PI * 2); mctx.fill(); }
+  // One flat crescent shadow (not a sphere gradient) hints at a terminator.
+  mctx.beginPath(); mctx.arc(mcx + 14, mcy - 6, 44, 0, Math.PI * 2);
+  mctx.fillStyle = "rgba(120,130,145,0.16)"; mctx.fill();
+
+  const moonTex = new THREE.CanvasTexture(moonCanvas);
+  moonTex.colorSpace = THREE.SRGBColorSpace;
+  const moonMat = new THREE.SpriteMaterial({ map: moonTex, transparent: true, depthWrite: false, fog: false, toneMapped: false });
+  const moonSprite = new THREE.Sprite(moonMat);
+  moonSprite.renderOrder = -999;
+  moonSprite.scale.set(9, 9, 1);
+  scene.add(moonSprite);
+
+  // Placement: same general hemisphere as the moon DirectionalLight above (up
+  // and off to the -x side) but held low, near the horizon. Every camera in
+  // game.js (title orbit, lobby, gameplay) looks level-to-downward at the
+  // campsite -- none of them ever points more than ~9 degrees above true
+  // horizontal -- so a physically exact match to the light's ~55-degree
+  // elevation would never be inside any frustum. Low and off-center (not
+  // dead ahead) is what actually clears the centered title/lobby logo and
+  // stays on screen; see docs/HANDOFF or the sky-sheet screenshots.
+  const MOON_AZ = THREE.MathUtils.degToRad(25);       // left of forward, echoing the light's -x bias
+  const MOON_EL_NIGHT = THREE.MathUtils.degToRad(6);
+  const MOON_EL_DAWN = THREE.MathUtils.degToRad(1.5);  // gentle set toward dawn
+  const MOON_RADIUS = 80;
+  function placeMoon(elevation) {
+    const dx = -Math.sin(MOON_AZ) * Math.cos(elevation);
+    const dz = -Math.cos(MOON_AZ) * Math.cos(elevation);
+    const dy = Math.sin(elevation);
+    moonSprite.position.set(dx * MOON_RADIUS, dy * MOON_RADIUS, dz * MOON_RADIUS);
+  }
+  placeMoon(MOON_EL_NIGHT);
+
+  function updateSkyDome(progress, t) {
+    starMat.uniforms.uTime.value = t;
+    const p = THREE.MathUtils.clamp(progress, 0, 1);
+    const fade = 1 - p * p;   // holds brighter longer, drops off through the last stretch
+    starMat.uniforms.uFade.value = fade;
+    moonMat.opacity = fade;
+    placeMoon(THREE.MathUtils.lerp(MOON_EL_NIGHT, MOON_EL_DAWN, p));
+  }
+
+  return { stars, moonSprite, updateSkyDome };
 }
 
 // ---------- Camper rig ----------
