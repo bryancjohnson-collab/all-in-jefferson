@@ -1,14 +1,14 @@
 // All In Jefferson, prototype 1: the fire loop on a flat plane with box campers.
 import * as THREE from "three";
-import { NIGHT_SECONDS, NIGHT_START_MIN, NIGHT_END_MIN, MIDNIGHT_MIN, FIRE, WIND, CAMPER, BEAR, PLAYER, LAYOUT, POWERUPS, EVENTS, HOT_LEVELS, SMOKE, DIFFICULTY, HINTS, PHONE_FOLLOW, KEG, HEAT, HEADLAMP, TRUCK } from "./config.js?v=153";
-import { initSound, coyoteYip, whoosh, growl, bang, startCrackle, setCrackle, footstep, logLand, pokeSound, buzz, playIntroThenLoop, startLoop, stopMusic, playDawn, toggleMusic, musicEnabled, musicActive, bearTheme, bearRideTheme, bearWomp, duckMusic, hissSteam, truckRumble, truckDoorThunk } from "./sound.js?v=153";
-import { campers as roster, pickPlayer, commitPick, snacks, emotes, comments, coolerComments, kegCheers, kegFireYell, sung, donSecondLine, fireBreathYell } from "./campers.js?v=153";
-import { buildWorld, makeCamperMesh, makeChairMesh, makeLogMesh, makePalletMesh, setSeated, stepWalkCycle, stepBearWalk, SEATED_DROP, setExpression } from "./world.js?v=153";
-import { buildMiniKeg, buildGuitar, buildTrumpet, buildBourbonGlass, buildYogurtCup, buildCheesePuffsBag, buildCoffeeMug, buildWaterSkis, buildFlightHelmet, buildCornholeSet, buildYetiTumbler, buildSpoon } from "./props.js?v=153";
-import { buildPickupTruck, buildTruckPath, TRUCK_GEOM } from "./truck.js?v=153";
-import { updateFireVisuals } from "./fire.js?v=153";
-import { SMOKE_LOOK } from "./config.js?v=153";
-import { initShareCardButtons } from "./sharecard.js?v=153";
+import { NIGHT_SECONDS, NIGHT_START_MIN, NIGHT_END_MIN, MIDNIGHT_MIN, FIRE, WIND, CAMPER, BEAR, PLAYER, LAYOUT, POWERUPS, EVENTS, HOT_LEVELS, SMOKE, DIFFICULTY, HINTS, PHONE_FOLLOW, KEG, HEAT, HEADLAMP, TRUCK, COLLIDE } from "./config.js?v=155";
+import { initSound, coyoteYip, whoosh, growl, bang, startCrackle, setCrackle, footstep, logLand, pokeSound, buzz, playIntroThenLoop, startLoop, stopMusic, playDawn, toggleMusic, musicEnabled, musicActive, bearTheme, bearRideTheme, bearWomp, duckMusic, hissSteam, truckRumble, truckDoorThunk } from "./sound.js?v=155";
+import { campers as roster, pickPlayer, commitPick, snacks, emotes, comments, coolerComments, kegCheers, kegFireYell, sung, donSecondLine, fireBreathYell } from "./campers.js?v=155";
+import { buildWorld, makeCamperMesh, makeChairMesh, makeLogMesh, makePalletMesh, setSeated, stepWalkCycle, stepBearWalk, SEATED_DROP, setExpression } from "./world.js?v=155";
+import { buildMiniKeg, buildGuitar, buildTrumpet, buildBourbonGlass, buildYogurtCup, buildCheesePuffsBag, buildCoffeeMug, buildWaterSkis, buildFlightHelmet, buildCornholeSet, buildYetiTumbler, buildSpoon } from "./props.js?v=155";
+import { buildPickupTruck, buildTruckPath, TRUCK_GEOM } from "./truck.js?v=155";
+import { updateFireVisuals } from "./fire.js?v=155";
+import { SMOKE_LOOK } from "./config.js?v=155";
+import { initShareCardButtons } from "./sharecard.js?v=155";
 
 const canvas = document.getElementById("scene");
 const world = buildWorld(canvas);
@@ -1507,6 +1507,62 @@ function animateBearWalk(dt) {
 
 // ---------- Player ----------
 const ORIGIN_XZ = { x: 0, z: 0 }; // the fire pit's center, for the touch action ring below
+// Keeps `pos` (the spot the player is about to stand on) out of every chair, every
+// camper on his feet and the wood pile; `move` is this frame's intended step. Each
+// obstacle is a circle (COLLIDE in config.js) and the player is pushed straight out
+// of any he overlaps, which makes him slide around it. Walking dead-on at one would
+// otherwise cancel the whole step and feel like glue, so when the push eats most of
+// the step he is carried sideways around the circle instead, on whichever side the
+// step was already leaning. Ends by re-applying the fire and clearing limits.
+const _colliders = [];
+function playerColliders() {
+  _colliders.length = 0;
+  campers.forEach((c) => {
+    const seated = c.state === "seated";
+    const cp = c.chairMesh.position, cl = Math.hypot(cp.x, cp.z) || 1;
+    const k = seated ? 1 - COLLIDE.seatedShift / cl : 1;
+    _colliders.push({ x: cp.x * k, z: cp.z * k, r: COLLIDE.chair });
+    if (!seated && c.mesh.visible && ["leaving", "arriving", "walking", "toCooler", "atCooler"].includes(c.state)) _colliders.push({ x: c.mesh.position.x, z: c.mesh.position.z, r: COLLIDE.walker });
+  });
+  _colliders.push({ x: LAYOUT.woodPile.x, z: LAYOUT.woodPile.z, r: COLLIDE.woodPile });
+  return _colliders;
+}
+function resolvePlayerCollisions(pos, move) {
+  const list = playerColliders();
+  const step = Math.hypot(move.x, move.z);
+  const fromX = pos.x - move.x, fromZ = pos.z - move.z;
+  for (let pass = 0; pass < 2; pass++) {
+    for (const o of list) {
+      const R = o.r + COLLIDE.player;
+      let dx = pos.x - o.x, dz = pos.z - o.z, d = Math.hypot(dx, dz);
+      if (d >= R) continue;
+      if (d < 1e-4) { dx = pos.x || 0.01; dz = pos.z || 1; d = Math.hypot(dx, dz); }   // dead centre: out, away from the fire
+      pos.x = o.x + dx / d * R; pos.z = o.z + dz / d * R;
+      if (step > 1e-5 && Math.hypot(pos.x - fromX, pos.z - fromZ) < step * 0.35) {
+        const side = move.x * dz - move.z * dx >= 0 ? 1 : -1;
+        const a = Math.atan2(pos.x - o.x, pos.z - o.z) + side * step / R;
+        pos.x = o.x + Math.sin(a) * R; pos.z = o.z + Math.cos(a) * R;
+      }
+    }
+  }
+  const r = Math.hypot(pos.x, pos.z);
+  if (r < PLAYER.minRadius && r > 1e-4) { pos.x *= PLAYER.minRadius / r; pos.z *= PLAYER.minRadius / r; }
+  if (r > PLAYER.maxRadius) { pos.x *= PLAYER.maxRadius / r; pos.z *= PLAYER.maxRadius / r; }
+  // Those two limits can push him back into something at the edge (the wood pile
+  // sits right at the clearing's rim). Slide along the limit, away from it, instead.
+  for (let i = 0; i < 4; i++) {
+    for (const o of list) {
+      const R = o.r + COLLIDE.player, d = Math.hypot(pos.x - o.x, pos.z - o.z);
+      if (d >= R - 1e-3) continue;
+      const pr = Math.hypot(pos.x, pos.z) || 1;
+      const turn = (pos.x * o.z - pos.z * o.x >= 0 ? 1 : -1) * (R - d + 0.01) / pr;
+      const ang = Math.atan2(pos.x, pos.z) + turn;
+      pos.x = Math.sin(ang) * pr; pos.z = Math.cos(ang) * pr;
+    }
+  }
+  pos.y = 0;
+}
+
 function updatePlayer(dt) {
   const v = new THREE.Vector3();
   // Tap-to-go (touch only, see attemptTapToGo): a stick drag always wins, so the
@@ -1545,9 +1601,14 @@ function updatePlayer(dt) {
     state.stepClock += dt;
     if (state.stepClock >= (player.carrying ? 0.42 : 0.32)) { state.stepClock = 0; footstep(); }
     const arrived = walkToward(player.mesh, player.autoWalkTarget, spd * dt);
+    // Same obstacles as a manual walk. A tap on (or behind) a chair or the wood pile
+    // can never be reached, so give up once the walk stops making headway.
+    const heading = player.mesh.position.clone().sub(player.pos).setY(0);
+    resolvePlayerCollisions(player.mesh.position, heading);
     movedDist = player.pos.distanceTo(player.mesh.position);
     player.pos.copy(player.mesh.position);
-    if (arrived) player.autoWalkTarget = null;
+    player.autoWalkStall = movedDist < spd * dt * 0.2 ? (player.autoWalkStall || 0) + dt : 0;
+    if (arrived || player.autoWalkStall > 0.5) { player.autoWalkTarget = null; player.autoWalkStall = 0; }
   } else if (v.lengthSq() > 0) {
     player.autoWalkTarget = null; // any manual input also clears a pending auto-walk
     v.normalize().multiplyScalar((player.carrying ? PLAYER.carrySpeed : PLAYER.speed) * (inSmoke ? SMOKE.slow : 1) * dt);
@@ -1558,13 +1619,7 @@ function updatePlayer(dt) {
     const r = next.length();
     if (r < PLAYER.minRadius) next.setLength(PLAYER.minRadius);
     if (r > PLAYER.maxRadius) next.setLength(PLAYER.maxRadius);
-    // A camper standing at the cooler is in the way
-    campers.forEach((c) => {
-      if (c.state !== "atCooler" && c.state !== "toCooler") return;
-      const away = next.clone().sub(c.mesh.position); away.y = 0;
-      if (away.lengthSq() < 0.0001) away.set(0.7, 0, 0.7);
-      if (away.length() < 0.95) { next.copy(c.mesh.position).add(away.setLength(0.95)); next.y = 0; }
-    });
+    resolvePlayerCollisions(next, v);
     movedDist = player.pos.distanceTo(next);
     player.pos.copy(next);
     player.mesh.rotation.y = Math.atan2(v.x, v.z);
@@ -1927,7 +1982,9 @@ function updateHeat(dt) {
     const r = player.pos.length();
     if (r < clear) {
       const dir = r > 0.01 ? player.pos.clone().setY(0).setLength(clear) : new THREE.Vector3(0, 0, clear);
+      const before = player.pos.clone();
       player.pos.lerp(dir, Math.min(1, dt * HEAT.pushSpeed));
+      resolvePlayerCollisions(player.pos, player.pos.clone().sub(before));
       player.mesh.position.copy(player.pos);
     }
   }

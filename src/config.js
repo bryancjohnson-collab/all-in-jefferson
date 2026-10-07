@@ -191,6 +191,21 @@ export const PLAYER = {
   maxRadius: 7.2,
 };
 
+// Things the player has to walk around (Bryan, 10/07/2026: "you can run over the
+// campers and the woodpile ... make it so you have to walk around those items: the
+// chairs, the other campers, and the woodpile"). Each is a circle on the ground;
+// the player is one too, and slides around them instead of stopping dead. Chairs
+// sit about 2.0 apart on the ring, so chair + player has to stay under 1.0 or the
+// gaps between chairs close and the fire can only be reached from the front.
+// Every radius is well inside PLAYER.reach, so nothing gets harder to use.
+export const COLLIDE = {
+  player: 0.3,
+  chair: 0.55,        // a camp chair, empty or occupied
+  seatedShift: 0.15,  // an occupied chair's circle sits this far toward the fire, over the sitter's knees
+  walker: 0.35,       // a camper on his feet (walking to bed, to the cooler, back from the truck)
+  woodPile: 0.85,
+};
+
 // Don M's mini keg (Bryan, 09/26: replaces the log he used to hand out). Pours are
 // a limited resource (about 5 liters, one pour per camper) rather than a wood
 // source, so this does not feed the fire economy the way his log did; DIFFICULTY
