@@ -4,11 +4,14 @@
 import * as THREE from "three";
 import { mergeGeometries, mergeVertices } from "three/addons/utils/BufferGeometryUtils.js";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
-import { LAYOUT, FIRE, REFINED_CAMPERS, TRUCK } from "./config.js?v=152";
-import { makeTruckRoadProbe } from "./truck.js?v=152";
-import { spawnModel, lerpColor, mulberry32, buildCabin, buildCooler, buildGasCan, buildCampChair, buildPokerStick } from "./props.js?v=152";
-import { buildTravelTrailer } from "./trailer.js?v=152";
-import { buildFire } from "./fire.js?v=152";
+import { LAYOUT, FIRE, FILL, REFINED_CAMPERS, TRUCK } from "./config.js?v=153";
+import { makeTruckRoadProbe } from "./truck.js?v=153";
+import { spawnModel, lerpColor, mulberry32, buildCabin, buildCooler, buildGasCan, buildCampChair, buildPokerStick } from "./props.js?v=153";
+import { buildTravelTrailer } from "./trailer.js?v=153";
+import { buildFire } from "./fire.js?v=153";
+import { buildAmbient } from "./ambient.js?v=153";
+import { buildCampLights } from "./camplights.js?v=153";
+import { buildGroundDetail } from "./ground.js?v=153";
 
 export function buildWorld(canvas) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -41,6 +44,15 @@ export function buildWorld(canvas) {
   moon.position.set(-8, 14, -6);
   scene.add(moon);
 
+  // Camera-side fill (FILL, config.js): the fire and the moon are both behind the
+  // near-side campers and the player, so their backs read as black silhouettes.
+  // A shadowless, low, no-falloff point light out on the camera side with a hard-ish
+  // range: it reaches the near half of the ring and fades out before the far campers,
+  // the cabin, the trailer and the trees.
+  const fill = new THREE.PointLight(FILL.color, FILL.intensity, FILL.range, 0);
+  fill.position.set(FILL.pos.x, FILL.pos.y, FILL.pos.z);
+  scene.add(fill);
+
   // Night sky: starfield + moon disc, both opt out of fog (far is 30, these live
   // at radius ~80-85) and never touch scene lighting. See buildNightSky() below.
   const { updateSkyDome } = buildNightSky(scene);
@@ -68,11 +80,7 @@ export function buildWorld(canvas) {
   ground.rotation.x = -Math.PI / 2;
   ground.receiveShadow = true;
   scene.add(ground);
-  const dirt = new THREE.Mesh(new THREE.CircleGeometry(5.2, 40), new THREE.MeshLambertMaterial({ color: "#5c4a33" }));
-  dirt.rotation.x = -Math.PI / 2;
-  dirt.position.y = 0.01;
-  dirt.receiveShadow = true;
-  scene.add(dirt);
+  buildGroundDetail(scene);   // replaces the flat dirt disc: worn clearing, paths, truck lane, grass tufts (src/ground.js)
 
   // Fire pit ring: campfire_stones scaled so its outer edge lands near radius 1.25,
   // same footprint the old torus ring occupied (play circle and flames untouched).
@@ -131,6 +139,7 @@ export function buildWorld(canvas) {
   trailer.position.set(7.5, 0, -7);
   trailer.rotation.y = Math.atan2(LAYOUT.camperDoor.x - 7.5, LAYOUT.camperDoor.z - (-7));
   scene.add(trailer);
+  scene.userData.updateCampLights = buildCampLights(scene, { cabin, trailer });   // fake lamplight, see camplights.js
   const TRAILER_POS = { x: 7.5, z: -7 };
   // Farthest point (tongue tip) is 3.1 from center at this rotation; add margin for canopy radius.
   const TRAILER_CLEAR = 4.4;
@@ -439,7 +448,8 @@ export function buildWorld(canvas) {
   window.addEventListener("resize", resize);
   resize();
 
-  return { renderer, scene, camera, fireLight, keyLight, flames, embers, sparks, coals, bear, windArrow, streaks, don, alan, bees, breath, pitLogs, hintArrow, snackToken, stick, star, starlink, woodPile, gasCan, cooler, pallet, trees, smoke, updateSkyDome };
+  const updateAmbient = buildAmbient(scene, renderer);   // fireflies + slow embers, see ambient.js
+  return { renderer, scene, camera, fireLight, keyLight, flames, embers, sparks, coals, bear, windArrow, streaks, don, alan, bees, breath, pitLogs, hintArrow, snackToken, stick, star, starlink, woodPile, gasCan, cooler, pallet, trees, smoke, updateSkyDome, updateAmbient };
 }
 
 // Night sky: a starfield (one Points draw call: uniform hemisphere + a faint,
@@ -1940,15 +1950,29 @@ export function buildWoodPile(defaultCapacity) {
   return { group, sync };
 }
 
+// Smoke puff: a few soft offset lobes (so no two edges are round and it reads as a
+// wisp, not a ball), peak alpha kept low, and a radial mask so nothing reaches the
+// sprite edge. No solid core: the middle is no denser than the lobes around it.
 function makeSmokeTexture() {
-  const c = document.createElement("canvas");
-  c.width = c.height = 64;
+  const S = 128, c = document.createElement("canvas");
+  c.width = c.height = S;
   const g = c.getContext("2d");
-  const grad = g.createRadialGradient(32, 32, 4, 32, 32, 30);
-  grad.addColorStop(0, "rgba(255,255,255,0.55)");
-  grad.addColorStop(0.6, "rgba(255,255,255,0.18)");
-  grad.addColorStop(1, "rgba(255,255,255,0)");
-  g.fillStyle = grad;
-  g.fillRect(0, 0, 64, 64);
+  const lobes = [[0, 0, 0.5, 0.5], [-0.17, 0.1, 0.36, 0.4], [0.2, -0.08, 0.34, 0.38], [0.04, -0.21, 0.3, 0.32], [-0.08, 0.24, 0.3, 0.3]];
+  for (const [ox, oy, rad, a] of lobes) {
+    const cx = S / 2 + ox * S, cy = S / 2 + oy * S, r = rad * S;
+    const grad = g.createRadialGradient(cx, cy, 0, cx, cy, r);
+    grad.addColorStop(0, `rgba(255,255,255,${a * 0.5})`);
+    grad.addColorStop(0.45, `rgba(255,255,255,${a * 0.22})`);
+    grad.addColorStop(1, "rgba(255,255,255,0)");
+    g.fillStyle = grad;
+    g.fillRect(0, 0, S, S);
+  }
+  g.globalCompositeOperation = "destination-in";
+  const mask = g.createRadialGradient(S / 2, S / 2, S * 0.12, S / 2, S / 2, S / 2);
+  mask.addColorStop(0, "rgba(0,0,0,1)");
+  mask.addColorStop(0.7, "rgba(0,0,0,0.5)");
+  mask.addColorStop(1, "rgba(0,0,0,0)");
+  g.fillStyle = mask;
+  g.fillRect(0, 0, S, S);
   return new THREE.CanvasTexture(c);
 }

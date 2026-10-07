@@ -1,13 +1,14 @@
 // All In Jefferson, prototype 1: the fire loop on a flat plane with box campers.
 import * as THREE from "three";
-import { NIGHT_SECONDS, NIGHT_START_MIN, NIGHT_END_MIN, MIDNIGHT_MIN, FIRE, WIND, CAMPER, BEAR, PLAYER, LAYOUT, POWERUPS, EVENTS, HOT_LEVELS, SMOKE, DIFFICULTY, HINTS, PHONE_FOLLOW, KEG, HEAT, HEADLAMP, TRUCK } from "./config.js?v=152";
-import { initSound, coyoteYip, whoosh, growl, bang, startCrackle, setCrackle, footstep, logLand, pokeSound, buzz, playIntroThenLoop, startLoop, stopMusic, playDawn, toggleMusic, musicEnabled, musicActive, bearTheme, bearRideTheme, bearWomp, duckMusic, hissSteam, truckRumble, truckDoorThunk } from "./sound.js?v=152";
-import { campers as roster, pickPlayer, commitPick, snacks, emotes, comments, coolerComments, kegCheers, kegFireYell, sung, donSecondLine, fireBreathYell } from "./campers.js?v=152";
-import { buildWorld, makeCamperMesh, makeChairMesh, makeLogMesh, makePalletMesh, setSeated, stepWalkCycle, stepBearWalk, SEATED_DROP, setExpression } from "./world.js?v=152";
-import { buildMiniKeg, buildGuitar, buildTrumpet, buildBourbonGlass, buildYogurtCup, buildCheesePuffsBag, buildCoffeeMug, buildWaterSkis, buildFlightHelmet, buildCornholeSet, buildYetiTumbler, buildSpoon } from "./props.js?v=152";
-import { buildPickupTruck, buildTruckPath, TRUCK_GEOM } from "./truck.js?v=152";
-import { updateFireVisuals } from "./fire.js?v=152";
-import { initShareCardButtons } from "./sharecard.js?v=152";
+import { NIGHT_SECONDS, NIGHT_START_MIN, NIGHT_END_MIN, MIDNIGHT_MIN, FIRE, WIND, CAMPER, BEAR, PLAYER, LAYOUT, POWERUPS, EVENTS, HOT_LEVELS, SMOKE, DIFFICULTY, HINTS, PHONE_FOLLOW, KEG, HEAT, HEADLAMP, TRUCK } from "./config.js?v=153";
+import { initSound, coyoteYip, whoosh, growl, bang, startCrackle, setCrackle, footstep, logLand, pokeSound, buzz, playIntroThenLoop, startLoop, stopMusic, playDawn, toggleMusic, musicEnabled, musicActive, bearTheme, bearRideTheme, bearWomp, duckMusic, hissSteam, truckRumble, truckDoorThunk } from "./sound.js?v=153";
+import { campers as roster, pickPlayer, commitPick, snacks, emotes, comments, coolerComments, kegCheers, kegFireYell, sung, donSecondLine, fireBreathYell } from "./campers.js?v=153";
+import { buildWorld, makeCamperMesh, makeChairMesh, makeLogMesh, makePalletMesh, setSeated, stepWalkCycle, stepBearWalk, SEATED_DROP, setExpression } from "./world.js?v=153";
+import { buildMiniKeg, buildGuitar, buildTrumpet, buildBourbonGlass, buildYogurtCup, buildCheesePuffsBag, buildCoffeeMug, buildWaterSkis, buildFlightHelmet, buildCornholeSet, buildYetiTumbler, buildSpoon } from "./props.js?v=153";
+import { buildPickupTruck, buildTruckPath, TRUCK_GEOM } from "./truck.js?v=153";
+import { updateFireVisuals } from "./fire.js?v=153";
+import { SMOKE_LOOK } from "./config.js?v=153";
+import { initShareCardButtons } from "./sharecard.js?v=153";
 
 const canvas = document.getElementById("scene");
 const world = buildWorld(canvas);
@@ -2984,6 +2985,7 @@ function render(dt) {
   // the ring) is unchanged while the lower decay reaches further outside it.
   fireLight.intensity = (6 + 120 * Math.min(level, 1) + (hot ? 160 * (level - 1) + 40 + tier * 18 : 0)) * 0.81 * flicker * (1 + (fireVis.lightNudge || 0));
   fireLight.color.setHSL(hot ? 0.1 : 0.07 - (1 - Math.min(level, 1)) * 0.04, hot ? 0.7 : 1, hot ? 0.7 : 0.55);
+  world.updateAmbient(dt, { level, wind: state.wind, t: ft });
   updateSmoke(dt, level, hot);
   updateHeadlamp();
   updateHeatGauge();
@@ -2994,6 +2996,7 @@ function render(dt) {
   scene.background.copy(sky);
   scene.fog.color.copy(sky);
   updateSkyDome(dawn, ft);
+  scene.userData.updateCampLights(dt, ft, dawn);
 
   // HUD
   ui.fireFill.style.width = `${(state.fire.level / FIRE.max) * 100}%`;
@@ -3084,33 +3087,43 @@ function render(dt) {
 let smokeSpawn = 0;
 function updateSmoke(dt, level, hot) {
   const w = state.wind;
+  const L = SMOKE_LOOK;
   const windPush = w.active ? 2.2 : 0.25;
   const smothering = state.fire.catching.some((c) => c.smother);
   const catching = smothering ? 3.6 : state.fire.catching.length > 0 ? 2.5 : 1;   // a fresh log smokes, a smothered one smokes more
   // The keg-on-the-fire trap always shows a steam burst, even when the dip it
   // caused leaves fire.level near 0 (which would otherwise mean no smoke at all).
   const steaming = state.t < state.keg.steamUntil;
-  const rate = steaming ? 46 : level <= 0.02 ? 0 : (hot ? 6 : 10 + 14 * Math.min(level, 1)) * catching;
+  // Thin wisps, not a column: L.rate keeps the 60-puff pool from saturating at a calm fire.
+  const rate = steaming ? 46 : level <= 0.02 ? 0 : (hot ? 6 : 10 + 14 * Math.min(level, 1)) * catching * L.rate;
   smokeSpawn += rate * dt;
+  const density = steaming ? 0.55 : (hot ? L.hotOpacity : L.opacity) * (1 + L.catchBoost * (catching - 1)) * (w.active ? L.gustBoost : 1) * (0.4 + 0.6 * Math.min(level, 1));
+  const swirl = L.swirl * (w.active ? 0.4 : 1);   // keep the gust stream narrow, it is a game mechanic
   for (const sp of smoke) {
     const u = sp.userData;
+    if (u.seed === undefined) { u.seed = Math.random() * 6.283; u.spin = (Math.random() - 0.5) * 2 * L.spin; }
     if (u.age >= u.life) {
       if (smokeSpawn < 1) continue;
       smokeSpawn -= 1;
-      u.age = 0; u.life = 3.5 + Math.random() * 2;
-      sp.position.set((Math.random() - 0.5) * 0.6, 0.9 + Math.random() * 0.4, (Math.random() - 0.5) * 0.6);
-      u.vel.set((Math.random() - 0.5) * 0.3, 1.1 + Math.random() * 0.6, (Math.random() - 0.5) * 0.3);
-      u.size = 0.5 + Math.random() * 0.4;
+      u.age = 0; u.life = 3.3 + Math.random() * 1.8;
+      sp.position.set((Math.random() - 0.5) * 0.5, 0.9 + Math.random() * 0.4, (Math.random() - 0.5) * 0.5);
+      u.vel.set((Math.random() - 0.5) * 0.3, 1.0 + Math.random() * 0.6, (Math.random() - 0.5) * 0.3);
+      u.size = L.startSize * (0.8 + Math.random() * 0.5);
+      u.seed = Math.random() * 6.283; u.spin = (Math.random() - 0.5) * 2 * L.spin;
+      sp.material.rotation = Math.random() * 6.283;
     }
     u.age += dt;
-    const k = u.age / u.life;
-    sp.position.x += (u.vel.x - w.dir.x * windPush) * dt;   // pushed away from the wind's source
-    sp.position.z += (u.vel.z - w.dir.y * windPush) * dt;
+    const k = Math.min(1, u.age / u.life);
+    sp.position.x += (u.vel.x + Math.cos(u.seed + u.age * 0.9) * swirl - w.dir.x * windPush) * dt;   // pushed away from the wind's source
+    sp.position.z += (u.vel.z + Math.sin(u.seed * 1.7 + u.age * 0.7) * swirl - w.dir.y * windPush) * dt;
     sp.position.y += u.vel.y * dt * (w.active ? 0.55 : 1);
-    const size = u.size + k * 2.2;
+    sp.material.rotation += u.spin * dt;
+    const size = u.size + L.grow * (1 - (1 - k) * (1 - k));   // spreads fastest early
     sp.scale.set(size, size, 1);
-    sp.material.opacity = steaming ? 0.55 * Math.sin(Math.PI * Math.min(1, k)) : (hot ? 0.18 : 0.42) * Math.sin(Math.PI * Math.min(1, k)) * (0.4 + 0.6 * Math.min(level, 1));
-    sp.material.color.setScalar(steaming ? 0.95 : hot ? 0.85 : 0.55);
+    const fin = Math.min(1, k / L.fadeIn);
+    sp.material.opacity = density * fin * fin * (3 - 2 * fin) * Math.pow(1 - k, 1.4);   // thins as it rises and spreads
+    const g = steaming ? 0.95 : (hot ? L.tint * 1.5 : L.tint);
+    sp.material.color.setRGB(g + 0.1 * (1 - k), g + 0.04 * (1 - k), g + 0.04 * k);      // warm near the coals, cooler up high
   }
 }
 

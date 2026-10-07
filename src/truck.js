@@ -10,7 +10,7 @@
 // self-contained (same reasoning game.js already uses for canBombMesh/
 // glassBottleMesh — see the comment there).
 import * as THREE from "three";
-import { TRUCK, LAYOUT } from "./config.js?v=152";
+import { TRUCK, LAYOUT } from "./config.js?v=153";
 
 // The drive as one curve: TRUCK.route, then the parking spot. Shared by game.js
 // (which moves the truck along it) and world.js (which keeps trees and ground

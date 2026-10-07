@@ -235,6 +235,19 @@ export const HEADLAMP = {
   distance: 8.5,
 };
 
+// Camera-side fill (world.js, next to the moon): one faint cool PointLight, no shadows,
+// no distance falloff, sitting low on the camera side so it lands on the backs of the
+// near-side campers and the player (which the fire never reaches) and barely on the
+// ground. `range` is the cutoff: full strength for roughly its first 70%, gone by the
+// far campers, cabin and trailer. Intensity is the one knob; same family as the moon
+// (0.56). 0 turns it off. Subtle 1.5, medium 2.5, strong 4.
+export const FILL = {
+  color: "#7f99d4",
+  intensity: 2.5,
+  pos: { x: 0, y: 1.2, z: 12.5 },
+  range: 16,
+};
+
 // Tom W's truck at midnight (added for the truck-arrival feature): timing for the
 // headlights-first -> drive-in -> park-and-light -> lights-off sequence. Geometry
 // (body color, lens/tail-light positions) lives in src/truck.js's TRUCK_GEOM so
@@ -330,4 +343,48 @@ export const LAYOUT = {
   // walkable radius, clear of the gas can and of Tom W's road on the right.
   // `rot` turns the pair so it runs along the edge of the clearing.
   cornhole: { x: -6.6, z: 5.2, gap: 3.0, rot: 0.75 },
+};
+
+// Ambient motion (src/ambient.js). Visual only, nothing here touches gameplay.
+// Fireflies drift and blink along the tree line; embers rise higher and live
+// longer than fire.js's sparks. `count` and `pool` are the Points buffer sizes
+// (one draw call each), so they are the whole cost.
+export const AMBIENT = {
+  fireflies: {
+    count: 56,
+    rMin: 7.2, rMax: 13,    // spawn ring; keeps the bright fire circle (about 5.5) empty
+    yMin: 0.3, yMax: 2.2,
+    drift: 0.9,             // how far one wanders from its home spot, in world units
+    sizeWorld: 0.3,         // glow diameter in world units; screen size is clamped to the px range
+    minPx: 7, maxPx: 22,    // CSS pixels at the on-screen scale, times the pixel ratio
+    periodMin: 3.0, periodMax: 7.0,   // seconds per blink cycle
+  },
+  embers: {
+    pool: 36,
+    minLevel: 0.12,         // fire level / FIRE.hot below this makes none
+    rate: 3.4,              // per second at the hot line (level 1.0)
+    hotRate: 7,             // extra per second per level above the hot line
+    lifeMin: 4.5, lifeMax: 8,
+    rise: 0.75,             // upward speed, units per second (sparks are 1.4 to 2.8)
+    sizeWorld: 0.24,
+    minPx: 6, maxPx: 18,
+    gustPush: 1.5,          // sideways speed during a wind gust (smoke uses 2.2)
+    breeze: 0.18,
+  },
+};
+
+// Smoke look (world.js sprite pool, driven by updateSmoke in game.js). The
+// gameplay smoke stream is SMOKE above; these only shape how the puffs read.
+export const SMOKE_LOOK = {
+  rate: 0.55,          // share of the old spawn rate; the old pool saturated into a solid column
+  startSize: 0.22,     // puff radius at birth, rises to startSize + grow
+  grow: 2.5,           // added over the puff's life, eased so it spreads fastest early
+  opacity: 0.8,        // peak opacity of a calm-fire puff (was 0.42, but the old texture and pool stacked it solid)
+  hotOpacity: 0.45,    // the same when the fire is above the hot line (was 0.18)
+  catchBoost: 0.3,     // extra opacity per unit of the `catching` multiplier above 1
+  gustBoost: 1.35,     // opacity multiplier during a gust so the downwind stream stays readable
+  fadeIn: 0.12,        // share of life spent fading in
+  spin: 0.5,           // max rotation speed, radians per second
+  swirl: 0.3,          // sideways wander, units per second (cut to 40% in a gust)
+  tint: 0.46,          // base gray level (was 0.55 flat)
 };
