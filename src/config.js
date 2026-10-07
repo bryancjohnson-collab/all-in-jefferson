@@ -242,7 +242,20 @@ export const HEADLAMP = {
 // HEADLAMP.intensity/fireLight above (a pre-r155-style "2-ish" would be invisible
 // next to them).
 export const TRUCK = {
-  driveSeconds: 10.5,         // spawn point (beyond the tree line) to LAYOUT.truckPark, a wide loop around the outside of every hazard
+  driveSeconds: 14,           // spawn point (beyond the tree line) to LAYOUT.truckPark along `route` below
+  // The drive, as [x, z] control points; LAYOUT.truckPark is appended as the last
+  // one (see buildTruckPath in truck.js). 10/07/2026, Bryan: "adjust the truck so
+  // that you can see it a little bit better, but I don't want it to drive over any
+  // of the stuff that's around the fire." The old loop ran at radius 13.5, which is
+  // past the fog's far end from the gameplay camera, so only the headlights ever
+  // showed. This one comes up the right side of camp at about x 9 (inside the
+  // frame and close to the firelight, outside PLAYER.maxRadius and the wood pile),
+  // swings around the outside of the trailer, crosses behind camp and curls in to
+  // the parking spot nose-first toward the fire. world.js keeps trees
+  // (roadTreeClear) and ground dressing (roadDressingClear) off this lane.
+  route: [[17, 10.2], [12.5, 7.3], [10.1, 4.8], [9.5, 1.5], [9.6, -1.2], [10.8, -3.3], [12.6, -5.8], [13.0, -8.6], [11.2, -11.3], [7.2, -12.4], [2.0, -12.2], [-2.2, -12.6], [-4.0, -11.6]],
+  roadTreeClear: 2.0,         // trees landing closer than this to the lane's centerline get slid sideways out of it
+  roadDressingClear: 2.1,     // rocks, stumps, bushes: none this close to the centerline
   lightsFadeInSeconds: 1.3,   // headlights visible before the truck starts moving
   litSeconds: 3.4,            // stopped, lights up, sweeping/lighting the campers
   fadeOutSeconds: 1.1,        // headlights fade to off before Tom gets out

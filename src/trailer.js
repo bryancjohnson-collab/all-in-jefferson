@@ -1,6 +1,6 @@
 // Low-poly 1990s white travel trailer, flat-shaded to match the rest of the diorama.
 // Local +x is the front (tongue/hitch end), local +z is the door side. Origin sits at
-// ground center, same convention as buildCamperTrailer in props.js.
+// ground center.
 import * as THREE from "three";
 
 const lambert = (color) => new THREE.MeshLambertMaterial({ color, flatShading: true });

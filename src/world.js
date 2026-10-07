@@ -4,10 +4,11 @@
 import * as THREE from "three";
 import { mergeGeometries, mergeVertices } from "three/addons/utils/BufferGeometryUtils.js";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
-import { LAYOUT, FIRE, REFINED_CAMPERS } from "./config.js?v=149";
-import { spawnModel, lerpColor, mulberry32, buildCabin, buildCooler, buildGasCan, buildCampChair, buildPokerStick } from "./props.js?v=149";
-import { buildTravelTrailer } from "./trailer.js?v=149";
-import { buildFire } from "./fire.js?v=149";
+import { LAYOUT, FIRE, REFINED_CAMPERS, TRUCK } from "./config.js?v=152";
+import { makeTruckRoadProbe } from "./truck.js?v=152";
+import { spawnModel, lerpColor, mulberry32, buildCabin, buildCooler, buildGasCan, buildCampChair, buildPokerStick } from "./props.js?v=152";
+import { buildTravelTrailer } from "./trailer.js?v=152";
+import { buildFire } from "./fire.js?v=152";
 
 export function buildWorld(canvas) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -165,6 +166,20 @@ export function buildWorld(canvas) {
     return tree;
   }
 
+  // Tom W's lane (TRUCK.route): a tree that lands on it is slid straight sideways
+  // off it rather than dropped, so the tree line keeps its density and the truck
+  // never drives through a trunk.
+  const truckRoad = makeTruckRoadProbe();
+  function offTruckRoad(x, z) {
+    const n = truckRoad(x, z);
+    if (n.dist >= TRUCK.roadTreeClear) return { x, z };
+    let dx = x - n.px, dz = z - n.pz;
+    const len = Math.hypot(dx, dz);
+    if (len < 1e-3) { dx = n.px; dz = n.pz; }   // dead centre: push away from the fire
+    const k = TRUCK.roadTreeClear / (Math.hypot(dx, dz) || 1);
+    return { x: n.px + dx * k, z: n.pz + dz * k };
+  }
+
   const trees = [];
   for (let i = 0; i < 46; i++) {
     const a = (i / 46) * Math.PI * 2 + (Math.random() - 0.5) * 0.12;
@@ -172,7 +187,9 @@ export function buildWorld(canvas) {
     const x = Math.sin(a) * r, z = Math.cos(a) * r;
     if (z > 7 && Math.abs(x) < 4) continue; // keep the road open toward the camera side
     if (Math.hypot(x - TRAILER_POS.x, z - TRAILER_POS.z) < TRAILER_CLEAR) continue; // keep the trailer clear, whatever position this random draw lands on
-    trees.push(plantPine(x, z, 3.4 + Math.random() * 2.4, true));
+    const t = offTruckRoad(x, z);
+    if (truckRoad(t.x, t.z).dist < TRUCK.roadTreeClear - 0.05 || Math.hypot(t.x - TRAILER_POS.x, t.z - TRAILER_POS.z) < TRAILER_CLEAR || Math.hypot(t.x, t.z) < 10) continue; // slid into another stretch of the lane, the trailer, or the clearing
+    trees.push(plantPine(t.x, t.z, 3.4 + Math.random() * 2.4, true));
   }
 
   // Back row, sparser and further out, for depth. Not part of `trees` (no wind sway,
@@ -183,7 +200,9 @@ export function buildWorld(canvas) {
     const x = Math.sin(a) * r, z = Math.cos(a) * r;
     if (z > 7 && Math.abs(x) < 4) continue;
     if (Math.hypot(x - TRAILER_POS.x, z - TRAILER_POS.z) < TRAILER_CLEAR) continue;
-    plantPine(x, z, 3.4 + Math.random() * 2.4, false);
+    const t = offTruckRoad(x, z);
+    if (truckRoad(t.x, t.z).dist < TRUCK.roadTreeClear - 0.05 || Math.hypot(t.x - TRAILER_POS.x, t.z - TRAILER_POS.z) < TRAILER_CLEAR || Math.hypot(t.x, t.z) < 10) continue;
+    plantPine(t.x, t.z, 3.4 + Math.random() * 2.4, false);
   }
 
   // Smoke: a pool of soft sprites recycled from the fire upward
@@ -325,6 +344,7 @@ export function buildWorld(canvas) {
     if (Math.hypot(x - LAYOUT.camperDoor.x, z - LAYOUT.camperDoor.z) < 1.6) return true;
     if (Math.hypot(x - LAYOUT.roadEntry.x, z - LAYOUT.roadEntry.z) < 2.0) return true;
     if (distToSegment(x, z, LAYOUT.bearEntry.x, LAYOUT.bearEntry.z, 0, 0) < 1.5) return true;
+    if (truckRoad(x, z).dist < TRUCK.roadDressingClear) return true;        // Tom W's lane
     return false;
   }
   const greenClump = () => lerpColor("#2f4f1f", "#3d5a24", dressingRand());   // warm olive, not the kit's teal default

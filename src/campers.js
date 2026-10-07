@@ -75,7 +75,24 @@ export const comments = [
   { text: "Did you hear the coyotes?" },
   { text: "Is there catfish in the pond?" },
   { text: "Where is the rocket launcher?" },
+  // Bryan, 10/07/2026, verbatim. `who` ties a line to one camper; `act: "cigar"`
+  // has Brian R light a cigar as he says it (game.js lightCigar); `sing` wraps the
+  // line in music notes. Spitty's also fires when Don M shows up (updateEvents).
+  { text: "I'd really like to hear a new song from Mauricio!" },
+  { text: "Go sports!!" },
+  { text: "Well, look at this group of snoring bastards." },
+  { text: "Welcome to Man Camp!" },
+  { text: "It's a tuna bro." },
+  { text: "This has got morning regret written all over it.", who: "brian-r", act: "cigar" },
+  { text: "Ta ta tee tee ta", who: "tom-s" },
+  { text: "Here comes Donnie", who: "spitty", sing: true },
 ];
+// Shown as sung: the words stay verbatim, the notes are only the "singing" cue.
+export const sung = (text) => `\u266A ${text} \u266A`;
+// Don M's second line, a few seconds into each sighting (Bryan, 10/07/2026, verbatim).
+export const donSecondLine = "Just Fuck through it!";
+// The fire breather yells this as the flame goes out (Bryan, 10/07/2026, verbatim).
+export const fireBreathYell = "Fire GOOOOOOD!!!";
 // Said only at the cooler, by whoever is not one of the three with their own line
 export const coolerComments = ["Anybody need one while I'm up?", "Who brought Strawberitas??"];
 

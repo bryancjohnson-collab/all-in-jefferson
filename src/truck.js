@@ -10,6 +10,29 @@
 // self-contained (same reasoning game.js already uses for canBombMesh/
 // glassBottleMesh — see the comment there).
 import * as THREE from "three";
+import { TRUCK, LAYOUT } from "./config.js?v=152";
+
+// The drive as one curve: TRUCK.route, then the parking spot. Shared by game.js
+// (which moves the truck along it) and world.js (which keeps trees and ground
+// dressing off it), so the lane and the drive can never drift apart.
+export function buildTruckPath() {
+  const pts = TRUCK.route.map(([x, z]) => new THREE.Vector3(x, 0, z));
+  pts.push(new THREE.Vector3(LAYOUT.truckPark.x, 0, LAYOUT.truckPark.z));
+  return new THREE.CatmullRomCurve3(pts, false, "catmullrom", 0.4);
+}
+// Returns nearest(x, z) -> { dist, px, pz }: the closest point on the lane's
+// centerline, sampled finely enough (about every 0.15 units) to treat as exact.
+export function makeTruckRoadProbe() {
+  const samples = buildTruckPath().getSpacedPoints(400);
+  // Parked, the nose reaches past the last point of the drive, toward the fire.
+  const park = samples[samples.length - 1], pr = Math.hypot(park.x, park.z) || 1;
+  for (let d = 0.4; d <= TRUCK_GEOM.halfLength; d += 0.4) samples.push(new THREE.Vector3(park.x - park.x / pr * d, 0, park.z - park.z / pr * d));
+  return (x, z) => {
+    let best = Infinity, bp = samples[0];
+    for (const s of samples) { const d = (s.x - x) * (s.x - x) + (s.z - z) * (s.z - z); if (d < best) { best = d; bp = s; } }
+    return { dist: Math.sqrt(best), px: bp.x, pz: bp.z };
+  };
+}
 
 const lambert = (color) => new THREE.MeshLambertMaterial({ color, flatShading: true });
 const basic = (color, opacity = 1) => new THREE.MeshBasicMaterial({ color, toneMapped: false, transparent: opacity < 1, opacity });

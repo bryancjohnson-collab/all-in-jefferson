@@ -112,6 +112,23 @@ const EMBER_DEFS = [
   { ox: -0.08, oz: 0.06, baseW: 0.2, baseH: 0.34 },
 ];
 
+// Wide, very soft falloff for the bloom halo: no hard core, so it reads as light
+// bleeding off the fire rather than as a second flame shape.
+function makeBloomTexture() {
+  const c = document.createElement("canvas");
+  c.width = c.height = 128;
+  const g = c.getContext("2d");
+  const grad = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  grad.addColorStop(0, "rgba(255,170,80,0.5)");
+  grad.addColorStop(0.2, "rgba(255,150,60,0.4)");
+  grad.addColorStop(0.5, "rgba(255,120,40,0.16)");
+  grad.addColorStop(0.78, "rgba(255,96,24,0.04)");
+  grad.addColorStop(1, "rgba(255,90,20,0)");
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 128, 128);
+  return new THREE.CanvasTexture(c);
+}
+
 export function buildFire(scene) {
   const flameTexCore = makeFlameTexture(true);
   const flameTexPlain = makeFlameTexture(false);
@@ -153,6 +170,21 @@ export function buildFire(scene) {
   glow.position.set(0, 0.3, 0.03);
   flames.add(glow);
   flames.userData.glow = glow;
+
+  // Bloom halo (10/07/2026, the last open step of the art pass). One additive
+  // sprite, not a post-processing pass: a real bloom pass would re-tone-map every
+  // toneMapped:false material in the scene (the flames, the outline, the coals),
+  // drop the canvas's antialiasing and add full-screen passes on phones, all to
+  // light up this one object. depthTest off so the light spills over whatever
+  // stands in front of the fire, the way bloom does.
+  const bloom = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: makeBloomTexture(), transparent: true, depthWrite: false, depthTest: false, fog: false,
+    blending: THREE.AdditiveBlending, toneMapped: false, opacity: 0,
+  }));
+  bloom.renderOrder = 5;
+  bloom.position.set(0, 0.7, 0);
+  scene.add(bloom);
+  flames.userData.bloom = bloom;
 
   LICK_DEFS.forEach((d) => makeLick(d, false));
   EMBER_DEFS.forEach((d) => makeLick(d, true));
@@ -310,6 +342,16 @@ export function updateFireVisuals(vis, { level, hot, tier, dt, flicker, wind }) 
   glow.scale.set(glowH, glowH * 0.9, 1);
   glow.position.set(0, glowH * 0.4, 0.02);
   glow.material.opacity = Math.min(0.4, 0.15 + growth * 0.12);
+
+  // Bloom halo: wider and brighter as the fire builds, nearly gone when it is
+  // down to embers, with a slow breathing flicker so it is never a static disc.
+  const bloom = flames.userData.bloom;
+  const lv = Math.max(0, Math.min(1.2, level));
+  const breathe = 1 + Math.sin(clock * 5.3) * 0.035 + Math.sin(clock * 11.7) * 0.02;
+  const bloomSize = (2.8 + lv * 3.6 + tier * 0.8) * breathe;
+  bloom.scale.set(bloomSize, bloomSize * 0.92, 1);
+  bloom.position.y = 0.55 + lv * 0.5;
+  bloom.material.opacity = Math.min(0.3, (0.05 + lv * 0.15 + tier * 0.02) * breathe);
 
   // Hot core: brightens and grows a little hotter with level/tier, but hard-capped
   // so it never becomes the dominant white shape (requirement: cap its size).

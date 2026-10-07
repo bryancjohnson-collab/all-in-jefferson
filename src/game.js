@@ -1,13 +1,13 @@
 // All In Jefferson, prototype 1: the fire loop on a flat plane with box campers.
 import * as THREE from "three";
-import { NIGHT_SECONDS, NIGHT_START_MIN, NIGHT_END_MIN, MIDNIGHT_MIN, FIRE, WIND, CAMPER, BEAR, PLAYER, LAYOUT, POWERUPS, EVENTS, HOT_LEVELS, SMOKE, DIFFICULTY, HINTS, PHONE_FOLLOW, KEG, HEAT, HEADLAMP, TRUCK } from "./config.js?v=149";
-import { initSound, coyoteYip, whoosh, growl, bang, startCrackle, setCrackle, footstep, logLand, pokeSound, buzz, playIntroThenLoop, startLoop, stopMusic, playDawn, toggleMusic, musicEnabled, musicActive, bearTheme, bearRideTheme, bearWomp, duckMusic, hissSteam, truckRumble, truckDoorThunk } from "./sound.js?v=149";
-import { campers as roster, pickPlayer, commitPick, snacks, emotes, comments, coolerComments, kegCheers, kegFireYell } from "./campers.js?v=149";
-import { buildWorld, makeCamperMesh, makeChairMesh, makeLogMesh, makePalletMesh, setSeated, stepWalkCycle, stepBearWalk, SEATED_DROP, setExpression } from "./world.js?v=149";
-import { buildMiniKeg, buildGuitar, buildTrumpet, buildBourbonGlass, buildYogurtCup, buildCheesePuffsBag, buildCoffeeMug, buildWaterSkis, buildFlightHelmet, buildCornholeSet, buildYetiTumbler, buildSpoon } from "./props.js?v=149";
-import { buildPickupTruck, TRUCK_GEOM } from "./truck.js?v=149";
-import { updateFireVisuals } from "./fire.js?v=149";
-import { initShareCardButtons } from "./sharecard.js?v=149";
+import { NIGHT_SECONDS, NIGHT_START_MIN, NIGHT_END_MIN, MIDNIGHT_MIN, FIRE, WIND, CAMPER, BEAR, PLAYER, LAYOUT, POWERUPS, EVENTS, HOT_LEVELS, SMOKE, DIFFICULTY, HINTS, PHONE_FOLLOW, KEG, HEAT, HEADLAMP, TRUCK } from "./config.js?v=152";
+import { initSound, coyoteYip, whoosh, growl, bang, startCrackle, setCrackle, footstep, logLand, pokeSound, buzz, playIntroThenLoop, startLoop, stopMusic, playDawn, toggleMusic, musicEnabled, musicActive, bearTheme, bearRideTheme, bearWomp, duckMusic, hissSteam, truckRumble, truckDoorThunk } from "./sound.js?v=152";
+import { campers as roster, pickPlayer, commitPick, snacks, emotes, comments, coolerComments, kegCheers, kegFireYell, sung, donSecondLine, fireBreathYell } from "./campers.js?v=152";
+import { buildWorld, makeCamperMesh, makeChairMesh, makeLogMesh, makePalletMesh, setSeated, stepWalkCycle, stepBearWalk, SEATED_DROP, setExpression } from "./world.js?v=152";
+import { buildMiniKeg, buildGuitar, buildTrumpet, buildBourbonGlass, buildYogurtCup, buildCheesePuffsBag, buildCoffeeMug, buildWaterSkis, buildFlightHelmet, buildCornholeSet, buildYetiTumbler, buildSpoon } from "./props.js?v=152";
+import { buildPickupTruck, buildTruckPath, TRUCK_GEOM } from "./truck.js?v=152";
+import { updateFireVisuals } from "./fire.js?v=152";
+import { initShareCardButtons } from "./sharecard.js?v=152";
 
 const canvas = document.getElementById("scene");
 const world = buildWorld(canvas);
@@ -670,7 +670,7 @@ function buildCrew(data) {
     player.mesh.add(bag);
     player.juggleBag = bag;
   }
-  window.__aij = { state, player, campers, propRigs, cornholeMesh, keys, renderer, camera, press: () => { spacePressed = true; }, speed: (window.__aij && window.__aij.speed) || 1, cfg: { FIRE, WIND, CAMPER, BEAR, EVENTS, PLAYER, LAYOUT, SMOKE, POWERUPS, KEG, HEAT, HEADLAMP, DIFFICULTY },
+  window.__aij = { state, player, campers, propRigs, lightCigar, bubble, cornholeMesh, keys, renderer, camera, press: () => { spacePressed = true; }, speed: (window.__aij && window.__aij.speed) || 1, cfg: { FIRE, WIND, CAMPER, BEAR, EVENTS, PLAYER, LAYOUT, SMOKE, POWERUPS, KEG, HEAT, HEADLAMP, DIFFICULTY },
     // Headless stepping for tuning runs: advances the logic without waiting for animation frames
     step: (dt, n) => { for (let i = 0; i < n && state.phase === "playing"; i++) { update(dt); if (window.__aij.bot) window.__aij.bot(dt); } return state.phase; },
     start: () => { if (state.phase === "start") goToLobby(); if (state.phase === "select") startNight(); return state.phase; },
@@ -1489,6 +1489,7 @@ function update(dt) {
   animateBearWalk(dt);
   updateMidnight();
   updateTruckArrival(dt);
+  updateCigars(dt);
   updateExpressions();
   checkEnd();
 }
@@ -1810,6 +1811,7 @@ function updatePlayer(dt) {
     campers.forEach((c) => { if (c.state === "seated") c.comfort = Math.min(100, c.comfort + 10); });
     state.log.push(`Fire-breathing at ${clockText()}`);
     whoosh();
+    setTimeout(() => { if (state.phase === "playing") bubble(player, fireBreathYell, 4, ""); }, 1300);
     scareBear();
   } else if (!player.carrying && nearFire && state.stick.held && state.fire.pokeCd <= 0) {
     state.fire.level = Math.min(FIRE.max, state.fire.level + FIRE.pokeHeat);
@@ -2065,7 +2067,7 @@ function updateCampers(dt) {
         const pool = comments.filter((k) => !k.who || warm.some((c) => c.data.id === k.who));
         const k = pick(pool);
         const c = k && (k.who ? warm.find((c) => c.data.id === k.who) : pick(warm));
-        if (c) { bubble(c, k.text, 4, ""); chatterBubbleUntil = c.bubble.until; if (k.sky) startSky(k.sky); }
+        if (c) { bubble(c, k.sing ? sung(k.text) : k.text, 4, ""); chatterBubbleUntil = c.bubble.until; if (k.sky) startSky(k.sky); if (k.act === "cigar") lightCigar(c); }
       } else {
         const c = pick(warm);
         if (c) { bubble(c, c.data.warm, 4, ""); chatterBubbleUntil = c.bubble.until; }
@@ -2285,9 +2287,16 @@ function updateEvents(dt) {
     bubble(state.don, "Gentlemen!", 4, "");
     const spotter = pick(campers.filter((c) => c.state === "seated"));
     if (spotter) setTimeout(() => bubble(spotter, "Is that Don M?", 4, ""), 1500);
+    // Spitty sings him in, then Don gets his second line off (both Bryan, 10/07/2026).
+    // Don's waits on the game clock for his own bubble to clear (updated just below).
+    const donSong = comments.find((k) => k.who === "spitty" && k.sing);
+    const spitty = campers.find((c) => c.data.id === "spitty" && c.state === "seated");
+    if (spitty && donSong) setTimeout(() => { if (donMesh.visible && state.phase === "playing") bubble(spitty, sung(donSong.text), 4, ""); }, 3600);
+    state.don.secondAt = state.t + 6.5;
     say("Don M is standing at the tree line. He's not coming over. You could go over.", 5);
     state.log.push("Don M sighting");
   }
+  if (ev.don > 0 && state.don.secondAt && state.t >= state.don.secondAt && state.t >= state.don.bubble.until) { state.don.secondAt = 0; bubble(state.don, donSecondLine, 4, ""); }
   if (ev.don > 0) { ev.don -= dt; if (ev.don <= 0) donMesh.visible = false; }
 
   // Snacks: someone offers, it hops chair to chair, the last guy tosses the wrapper in
@@ -2716,6 +2725,47 @@ function scareBear() {
   }
 }
 
+// ---------- Brian R's cigar ----------
+// Bryan, 10/07/2026: "Brian R lights a cigar and can also say ..." The first time
+// the line comes up he lights one (a lighter flare at the tip) and it stays lit in
+// his mouth for the rest of the night; any later time is a fresh puff. Chunky on
+// purpose, like the other props: at true scale it would be two pixels from the
+// gameplay camera. Parented to the head so it follows him to bed.
+const CIGAR_MOUTH = { y: 0.115, z: 0.162 };   // MOUTH_Y / MOUTH_Z in world.js
+function lightCigar(c) {
+  const head = c.mesh.userData.parts && c.mesh.userData.parts.head;
+  if (!head) return;
+  if (!c.cigar) {
+    const g = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.026, 0.19, 8), new THREE.MeshLambertMaterial({ color: "#5a371c", flatShading: true }));
+    body.rotation.x = Math.PI / 2; body.position.z = 0.095;
+    const band = new THREE.Mesh(new THREE.CylinderGeometry(0.0275, 0.0275, 0.03, 8), new THREE.MeshLambertMaterial({ color: "#c9a23a", flatShading: true }));
+    band.rotation.x = Math.PI / 2; band.position.z = 0.05;
+    const ember = new THREE.Mesh(new THREE.CylinderGeometry(0.023, 0.023, 0.02, 8), new THREE.MeshBasicMaterial({ color: "#ff7a2a", toneMapped: false, fog: false }));
+    ember.rotation.x = Math.PI / 2; ember.position.z = 0.196;
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: truckGlowTex, color: "#ff9a4a", transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false, fog: false }));
+    glow.position.z = 0.2;
+    g.add(body, band, ember, glow);
+    g.position.set(0.035, CIGAR_MOUTH.y, CIGAR_MOUTH.z - 0.01);
+    g.rotation.set(0.22, 0.3, 0);   // tipped down a touch and out of the corner of his mouth
+    head.add(g);
+    c.cigar = { group: g, glow, flare: 0, clock: Math.random() * 10 };
+  }
+  c.cigar.flare = 1;
+}
+function updateCigars(dt) {
+  campers.forEach((c) => {
+    const k = c.cigar;
+    if (!k) return;
+    k.clock += dt;
+    k.flare = Math.max(0, k.flare - dt / 1.4);
+    const draw = Math.max(0, Math.sin(k.clock * 0.9)) ** 6;   // a slow pull every few seconds
+    const s = 0.16 + draw * 0.1 + k.flare * 0.42;
+    k.glow.scale.set(s, s, 1);
+    k.glow.material.opacity = Math.min(1, 0.45 + draw * 0.3 + k.flare * 0.5);
+  });
+}
+
 // ---------- Midnight: Tom W's truck ----------
 // Rotates a local-space offset by the truck's current rotation.y and adds its
 // position, matching the same convention walkToward/rotation.y = atan2(x, z)
@@ -2783,39 +2833,12 @@ function updateMidnight() {
   t.tom = tom;
   t.phase = "approach";
   t.timer = 0;
-  // Path: from well beyond the tree line (past LAYOUT.roadEntry, same general
-  // heading -- both off camera on purpose, same as roadEntry always was),
-  // around the OUTSIDE of every hazard on a radius-13.5 arc, then in to
-  // LAYOUT.truckPark. The final position/heading get hard-set the moment the
-  // drive timer completes (below), so this path only has to get the sweep
-  // and the approach right, not land the tangent exactly.
-  //
-  // The arc's radius was picked, not guessed: the camper door (radius 7.9)
-  // and the trailer (10.6) sit only ~9 degrees apart in angle, and the cabin
-  // (10.3) and cabin door (7.5) only ~14 degrees apart -- two "walls" a
-  // moderate-radius path can't thread between without clipping one or the
-  // other (confirmed by sampling several tighter routes, all of which put the
-  // truck within 1 unit of the trailer or the cabin at some point while
-  // still on camera). Sampled at 2000 points along the final curve, this loop
-  // clears every hazard by 3.2+ units and never drops inside radius 9.8 (the
-  // ring is 3.3), holding steady even as the curve overshoots a little
-  // between control points.
-  //
-  // The sweep's endpoint (09/27/2026, truck relocated per Bryan): LAYOUT.
-  // truckPark now sits at angle ~198deg/radius ~10.1 (measured the same way,
-  // atan2(x, z) from +Z), well short of the cabin's ~227deg -- so the loop
-  // now stops at 195deg instead of continuing on toward 235deg and doubling
-  // back past the cabin's angle to reach the park point. Shorter sweep, same
-  // radius, same clearance logic.
-  const spawn = new THREE.Vector3(LAYOUT.roadEntry.x * 1.7, 0, LAYOUT.roadEntry.z * 1.7);
-  const road = new THREE.Vector3(LAYOUT.roadEntry.x, 0, LAYOUT.roadEntry.z);
-  const loopPoints = [];
-  for (let deg = 95; deg <= 195; deg += 20) {
-    const a = THREE.MathUtils.degToRad(deg);
-    loopPoints.push(new THREE.Vector3(Math.sin(a) * 13.5, 0, Math.cos(a) * 13.5));
-  }
-  const park = new THREE.Vector3(LAYOUT.truckPark.x, 0, LAYOUT.truckPark.z);
-  t.path = new THREE.CatmullRomCurve3([spawn, road, ...loopPoints, park], false, "catmullrom", 0.4);
+  // The route itself lives in config.js (TRUCK.route) and is built by
+  // buildTruckPath() in truck.js, which world.js also uses to keep trees and
+  // ground dressing off the lane. The final position/heading get hard-set the
+  // moment the drive timer completes (below); the route's last leg already
+  // points at the fire, so that set is a nudge, not a snap.
+  t.path = buildTruckPath();
   // Drives up out of the ground (see truckMesh's setup above) to the spawn end
   // of the path -- it was already rendering every frame, just buried at y=-30.
   truckMesh.position.copy(t.path.getPointAt(0));
@@ -2845,7 +2868,10 @@ function updateTruckArrival(dt) {
   if (t.phase === "approach") {
     const lightK = Math.min(1, t.timer / TRUCK.lightsFadeInSeconds);
     if (t.timer > TRUCK.lightsFadeInSeconds) {
-      const drive = Math.min(1, (t.timer - TRUCK.lightsFadeInSeconds) / (TRUCK.driveSeconds - TRUCK.lightsFadeInSeconds));
+      // Steady speed up the side of camp, easing off over the last stretch so it
+      // rolls to a stop in the parking spot instead of halting dead.
+      const u = Math.min(1, (t.timer - TRUCK.lightsFadeInSeconds) / (TRUCK.driveSeconds - TRUCK.lightsFadeInSeconds));
+      const drive = u < 0.75 ? u * 0.84 / 0.75 : 0.84 + 0.16 * (1 - Math.pow(1 - (u - 0.75) / 0.25, 2));
       truckMesh.position.copy(t.path.getPointAt(drive));
       const tan = t.path.getTangentAt(Math.max(0.001, Math.min(0.999, drive)));
       truckMesh.rotation.y = easeAngle(truckMesh.rotation.y, Math.atan2(tan.x, tan.z), dt * 4);

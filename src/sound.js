@@ -203,16 +203,6 @@ function pad(midis, t, dur, vol) {
 const CH = { G: [55, 59, 62], Em: [52, 55, 59], C: [48, 52, 55], D: [50, 54, 57] };
 const strum = (chord, t, vol = 0.09, spread = 0.045) => chord.forEach((m, i) => pluck(m + 12, t + i * spread, 1.6, vol));
 
-// The lobby riff: four strummed chords and a little run up to a held G
-export function playRiff() {
-  if (!ctx || !ensureMaster()) return;
-  const t0 = ctx.currentTime + 0.05, b = 60 / 84;
-  [["G", 0], ["D", 1], ["Em", 2], ["C", 3]].forEach(([c, i]) => { strum(CH[c], t0 + i * b * 1.5); bass(CH[c][0] - 12, t0 + i * b * 1.5, b * 1.4, 0.16); });
-  const run = [62, 64, 66, 67, 69, 71, 74];
-  run.forEach((m, i) => pluck(m + 12, t0 + 6 * b + i * b * 0.25, 0.5, 0.08));
-  strum(CH.G, t0 + 7.8 * b, 0.11, 0.06); pad([67, 71, 74, 79], t0 + 7.8 * b, 3.2, 0.05); bass(43, t0 + 7.8 * b, 3, 0.18);
-}
-
 // The title-screen intro: the very first sound of the game, played once on the
 // player's first touch/pointer/key press on the title screen. Same key (G),
 // tempo (84 bpm) and instruments (pluck/bass/strum) as the lobby riff above, so
