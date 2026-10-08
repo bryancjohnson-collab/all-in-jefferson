@@ -1,8 +1,17 @@
 // Tiny synthesized sounds. No files. The context starts on the first user gesture.
 let ctx = null;
 export function initSound() {
-  if (ctx) return;
+  if (ctx) { unlockSound(); return; }
   try { ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { ctx = null; }
+  // iOS Safari parks the context as "interrupted" (app switch, lock screen, a call)
+  // and it stays silent until resume() is called from a gesture. Retry on any change.
+  if (ctx) { ctx.onstatechange = () => { /* kept so the state is observable in dev */ }; unlockSound(); }
+}
+// Safe to call from any user gesture or when the page comes back to the front:
+// wakes a suspended or interrupted context, does nothing if it is already running.
+export function unlockSound() {
+  if (!ctx || ctx.state === "running") return;
+  try { const r = ctx.resume(); if (r && r.catch) r.catch(() => {}); } catch (e) { /* ignore */ }
 }
 function env(gain, t0, a, peak, d) {
   gain.gain.setValueAtTime(0.0001, t0);
@@ -25,6 +34,22 @@ export function coyoteYip() {
     o.connect(f).connect(g).connect(ctx.destination);
     o.start(t); o.stop(t + 0.25);
   }
+}
+// Menu clicks (title, lobby, pause menu, end card). "tick" is a short wooden
+// knock; "go" is a quick rising pair for the buttons that start something.
+// Straight to the output like the other effects, so the music mute leaves them on.
+export function uiClick(kind = "tick") {
+  if (!ctx) return;
+  unlockSound();
+  const t0 = ctx.currentTime;
+  const note = (freq, t, dur, vol, type = "triangle") => {
+    const o = ctx.createOscillator(); const g = ctx.createGain();
+    o.type = type; o.frequency.setValueAtTime(freq * 1.25, t); o.frequency.exponentialRampToValueAtTime(freq, t + 0.03);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.006); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(ctx.destination); o.start(t); o.stop(t + dur + 0.03);
+  };
+  if (kind === "go") { note(392, t0, 0.12, 0.16); note(587, t0 + 0.07, 0.2, 0.16); }
+  else note(660, t0, 0.09, 0.13);
 }
 // Gas fireball: a noise whoosh
 export function whoosh() {

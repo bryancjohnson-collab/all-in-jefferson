@@ -1,14 +1,14 @@
 // All In Jefferson, prototype 1: the fire loop on a flat plane with box campers.
 import * as THREE from "three";
-import { NIGHT_SECONDS, NIGHT_START_MIN, NIGHT_END_MIN, MIDNIGHT_MIN, FIRE, WIND, CAMPER, BEAR, PLAYER, LAYOUT, POWERUPS, EVENTS, HOT_LEVELS, SMOKE, DIFFICULTY, HINTS, COACH, PHONE_FOLLOW, KEG, HEAT, HEADLAMP, TRUCK, COLLIDE } from "./config.js?v=159";
-import { initSound, coyoteYip, whoosh, growl, bang, startCrackle, setCrackle, footstep, logLand, pokeSound, buzz, playIntroThenLoop, startLoop, stopMusic, playDawn, toggleMusic, musicEnabled, musicActive, bearTheme, bearRideTheme, bearWomp, duckMusic, hissSteam, truckRumble, truckDoorThunk } from "./sound.js?v=159";
-import { campers as roster, pickPlayer, commitPick, snacks, emotes, comments, coolerComments, kegCheers, kegFireYell, sung, donSecondLine, fireBreathYell } from "./campers.js?v=159";
-import { buildWorld, makeCamperMesh, makeChairMesh, makeLogMesh, makePalletMesh, setSeated, stepWalkCycle, stepBearWalk, SEATED_DROP, setExpression } from "./world.js?v=159";
-import { buildMiniKeg, buildGuitar, buildTrumpet, buildBourbonGlass, buildYogurtCup, buildCheesePuffsBag, buildCoffeeMug, buildWaterSkis, buildFlightHelmet, buildCornholeSet, buildYetiTumbler, buildSpoon } from "./props.js?v=159";
-import { buildPickupTruck, buildTruckPath, TRUCK_GEOM } from "./truck.js?v=159";
-import { updateFireVisuals } from "./fire.js?v=159";
-import { SMOKE_LOOK } from "./config.js?v=159";
-import { initShareCardButtons } from "./sharecard.js?v=159";
+import { NIGHT_SECONDS, NIGHT_START_MIN, NIGHT_END_MIN, MIDNIGHT_MIN, FIRE, WIND, CAMPER, BEAR, PLAYER, LAYOUT, POWERUPS, EVENTS, HOT_LEVELS, SMOKE, DIFFICULTY, HINTS, COACH, PHONE_FOLLOW, KEG, HEAT, HEADLAMP, TRUCK, COLLIDE } from "./config.js?v=161";
+import { initSound, unlockSound, uiClick, coyoteYip, whoosh, growl, bang, startCrackle, setCrackle, footstep, logLand, pokeSound, buzz, playIntroThenLoop, startLoop, stopMusic, playDawn, toggleMusic, musicEnabled, musicActive, bearTheme, bearRideTheme, bearWomp, duckMusic, hissSteam, truckRumble, truckDoorThunk } from "./sound.js?v=161";
+import { campers as roster, pickPlayer, commitPick, snacks, emotes, comments, coolerComments, kegCheers, kegFireYell, sung, donSecondLine, fireBreathYell } from "./campers.js?v=161";
+import { buildWorld, makeCamperMesh, makeChairMesh, makeLogMesh, makePalletMesh, setSeated, stepWalkCycle, stepBearWalk, SEATED_DROP, setExpression } from "./world.js?v=161";
+import { buildMiniKeg, buildGuitar, buildTrumpet, buildBourbonGlass, buildYogurtCup, buildCheesePuffsBag, buildCoffeeMug, buildWaterSkis, buildFlightHelmet, buildCornholeSet, buildYetiTumbler, buildSpoon } from "./props.js?v=161";
+import { buildPickupTruck, buildTruckPath, TRUCK_GEOM } from "./truck.js?v=161";
+import { updateFireVisuals } from "./fire.js?v=161";
+import { SMOKE_LOOK } from "./config.js?v=161";
+import { initShareCardButtons } from "./sharecard.js?v=161";
 
 const canvas = document.getElementById("scene");
 const world = buildWorld(canvas);
@@ -392,7 +392,9 @@ ui.iosTipBtn.addEventListener("click", () => {
   ui.iosTip.hidden = true;
 });
 function stickPointerDown(e) {
-  if (touchStick.id !== null) return;
+  // A new touch always takes over. The old guard (ignore if a pointer is already
+  // held) froze the stick for the rest of the night whenever the browser lost a
+  // pointerup (an iOS system gesture, a stray second finger); only pause cleared it.
   touchStick.id = e.pointerId;
   touchStick.originX = e.clientX; touchStick.originY = e.clientY;
   touchStick.downAt = performance.now();
@@ -433,6 +435,24 @@ ui.stickZone.addEventListener("pointerdown", stickPointerDown);
 ui.stickZone.addEventListener("pointermove", stickPointerMove);
 ui.stickZone.addEventListener("pointerup", stickPointerUp);
 ui.stickZone.addEventListener("pointercancel", stickPointerUp);
+ui.stickZone.addEventListener("lostpointercapture", stickPointerUp);
+// No fingers left on the screen means no stick, whatever events were dropped.
+function clearStickIfNoTouches(e) {
+  if (e.touches && e.touches.length > 0) return;
+  if (touchStick.id === null) return;
+  touchStick.id = null; touchStick.x = 0; touchStick.y = 0; ui.stick.hidden = true;
+}
+window.addEventListener("touchend", clearStickIfNoTouches, { capture: true, passive: true });
+window.addEventListener("touchcancel", clearStickIfNoTouches, { capture: true, passive: true });
+// Menu button sounds (Bryan 10/08/2026): every button in the title, lobby, pause
+// menu and end card clicks. Gameplay buttons (action, pause) are left alone.
+window.addEventListener("click", (e) => {
+  const b = e.target && e.target.closest ? e.target.closest("button") : null;
+  if (!b || !b.closest("#start, #select, #pause-overlay, #end")) return;
+  uiClick(b.id === "play-btn" || b.id === "start-btn" || b.id === "resume-btn" ? "go" : "tick");
+}, { capture: true });
+// Audio: any gesture, or coming back to the page, wakes an interrupted context.
+["pointerdown", "pointerup", "touchend", "click"].forEach((ev) => window.addEventListener(ev, unlockSound, { capture: true, passive: true }));
 
 // Tap-to-go over open canvas (outside the stick zone and the action button,
 // which have their own pointer handling above/below): a quick tap on an
@@ -737,7 +757,7 @@ window.addEventListener("keyup", (e) => keys.delete(e.key.toLowerCase()));
 // phone, losing focus (switching apps, locking the screen) also opens the pause
 // menu (docs/PHONE.md); keyboard devices are unaffected.
 window.addEventListener("blur", () => { keys.clear(); if (isTouch && state.phase === "playing") pause(); });
-document.addEventListener("visibilitychange", () => { if (document.hidden) { keys.clear(); if (isTouch && state.phase === "playing") pause(); } });
+document.addEventListener("visibilitychange", () => { if (!document.hidden) unlockSound(); if (document.hidden) { keys.clear(); if (isTouch && state.phase === "playing") pause(); } });
 
 function goToLobby() {
   if (state.phase !== "start") return;
@@ -907,11 +927,11 @@ window.addEventListener("keydown", (e) => {
   // M check above (so an M press as the player's very first key mutes before this
   // ever tries to start anything, instead of a note sneaking out first).
   maybeStartTitleMusic();
-  if (state.phase === "start" && (e.key === " " || e.key === "Enter")) { e.preventDefault(); goToLobby(); }
+  if (state.phase === "start" && (e.key === " " || e.key === "Enter")) { e.preventDefault(); uiClick("go"); goToLobby(); }
   else if (state.phase === "select") {
-    if (e.key === " " || e.key === "Enter") { e.preventDefault(); startNight(); }
-    else if (e.key === "ArrowLeft" || e.key.toLowerCase() === "a") { e.preventDefault(); cyclePick(-1); }
-    else if (e.key === "ArrowRight" || e.key.toLowerCase() === "d") { e.preventDefault(); cyclePick(1); }
+    if (e.key === " " || e.key === "Enter") { e.preventDefault(); uiClick("go"); startNight(); }
+    else if (e.key === "ArrowLeft" || e.key.toLowerCase() === "a") { e.preventDefault(); uiClick(); cyclePick(-1); }
+    else if (e.key === "ArrowRight" || e.key.toLowerCase() === "d") { e.preventDefault(); uiClick(); cyclePick(1); }
   }
 });
 
