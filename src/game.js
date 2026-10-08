@@ -1,14 +1,14 @@
 // All In Jefferson, prototype 1: the fire loop on a flat plane with box campers.
 import * as THREE from "three";
-import { NIGHT_SECONDS, NIGHT_START_MIN, NIGHT_END_MIN, MIDNIGHT_MIN, FIRE, WIND, CAMPER, BEAR, PLAYER, LAYOUT, POWERUPS, EVENTS, HOT_LEVELS, SMOKE, DIFFICULTY, HINTS, PHONE_FOLLOW, KEG, HEAT, HEADLAMP, TRUCK, COLLIDE } from "./config.js?v=155";
-import { initSound, coyoteYip, whoosh, growl, bang, startCrackle, setCrackle, footstep, logLand, pokeSound, buzz, playIntroThenLoop, startLoop, stopMusic, playDawn, toggleMusic, musicEnabled, musicActive, bearTheme, bearRideTheme, bearWomp, duckMusic, hissSteam, truckRumble, truckDoorThunk } from "./sound.js?v=155";
-import { campers as roster, pickPlayer, commitPick, snacks, emotes, comments, coolerComments, kegCheers, kegFireYell, sung, donSecondLine, fireBreathYell } from "./campers.js?v=155";
-import { buildWorld, makeCamperMesh, makeChairMesh, makeLogMesh, makePalletMesh, setSeated, stepWalkCycle, stepBearWalk, SEATED_DROP, setExpression } from "./world.js?v=155";
-import { buildMiniKeg, buildGuitar, buildTrumpet, buildBourbonGlass, buildYogurtCup, buildCheesePuffsBag, buildCoffeeMug, buildWaterSkis, buildFlightHelmet, buildCornholeSet, buildYetiTumbler, buildSpoon } from "./props.js?v=155";
-import { buildPickupTruck, buildTruckPath, TRUCK_GEOM } from "./truck.js?v=155";
-import { updateFireVisuals } from "./fire.js?v=155";
-import { SMOKE_LOOK } from "./config.js?v=155";
-import { initShareCardButtons } from "./sharecard.js?v=155";
+import { NIGHT_SECONDS, NIGHT_START_MIN, NIGHT_END_MIN, MIDNIGHT_MIN, FIRE, WIND, CAMPER, BEAR, PLAYER, LAYOUT, POWERUPS, EVENTS, HOT_LEVELS, SMOKE, DIFFICULTY, HINTS, COACH, PHONE_FOLLOW, KEG, HEAT, HEADLAMP, TRUCK, COLLIDE } from "./config.js?v=159";
+import { initSound, coyoteYip, whoosh, growl, bang, startCrackle, setCrackle, footstep, logLand, pokeSound, buzz, playIntroThenLoop, startLoop, stopMusic, playDawn, toggleMusic, musicEnabled, musicActive, bearTheme, bearRideTheme, bearWomp, duckMusic, hissSteam, truckRumble, truckDoorThunk } from "./sound.js?v=159";
+import { campers as roster, pickPlayer, commitPick, snacks, emotes, comments, coolerComments, kegCheers, kegFireYell, sung, donSecondLine, fireBreathYell } from "./campers.js?v=159";
+import { buildWorld, makeCamperMesh, makeChairMesh, makeLogMesh, makePalletMesh, setSeated, stepWalkCycle, stepBearWalk, SEATED_DROP, setExpression } from "./world.js?v=159";
+import { buildMiniKeg, buildGuitar, buildTrumpet, buildBourbonGlass, buildYogurtCup, buildCheesePuffsBag, buildCoffeeMug, buildWaterSkis, buildFlightHelmet, buildCornholeSet, buildYetiTumbler, buildSpoon } from "./props.js?v=159";
+import { buildPickupTruck, buildTruckPath, TRUCK_GEOM } from "./truck.js?v=159";
+import { updateFireVisuals } from "./fire.js?v=159";
+import { SMOKE_LOOK } from "./config.js?v=159";
+import { initShareCardButtons } from "./sharecard.js?v=159";
 
 const canvas = document.getElementById("scene");
 const world = buildWorld(canvas);
@@ -174,6 +174,7 @@ const ui = {
   musicChip: document.getElementById("music-chip"),
   bottle: document.getElementById("bottle-chip"),
   banner: document.getElementById("banner"),
+  coach: document.getElementById("coach"),
   clock: document.getElementById("clock"),
   wood: document.getElementById("wood-count"),
   gas: document.getElementById("gas-count"),
@@ -249,6 +250,7 @@ const state = {
   stepClock: 0,
   hints: { woodEver: false, gasEver: false, lastStick: -999, lastWood: -999, lastGas: -999, donShown: false, palletShown: false, target: null, until: 0 },
   stick: { held: false },
+  coach: { sig: "", lastAct: 0, nextNudge: 0, nudge: null },
   beer: { available: true, thrown: false, fuse: 0, exploded: false },
   // Camper-tossed full can that goes in the fire and explodes, once a night. Separate
   // from `beer` above (the player's own beer bomb), which is unchanged.
@@ -895,6 +897,7 @@ function startNight() {
   player.pos.set(0, 0, 4.6);
   player.mesh.position.copy(player.pos);
   say(`${player.data.name}, it's 9 PM. Keep the fire going until 5:30.`, 6);
+  showBanner("KEEP THE FIRE GOING", COACH.bannerSeconds);
 }
 ui.startBtn.addEventListener("click", goToLobby);
 ui.playBtn.addEventListener("click", startNight);
@@ -2624,8 +2627,62 @@ function showHint(target, text) {
   state.hints.target = target.clone(); state.hints.until = state.t + HINTS.showSeconds;
   say(text, HINTS.showSeconds);
 }
+// ---------- Coach: say what to do next when the player seems lost ----------
+// Bryan 10/08/2026: Tom S couldn't work out the game. Until the first log lands
+// it walks the player through grab-then-carry-then-drop. After that it only
+// speaks when the fire is sinking and nothing useful (grab, drop, pour, poke)
+// has happened for COACH.idleSeconds, and it says the next step for what the
+// player is holding right now. Returns { text, target } or null.
+// The arrow floats 2.6 above its target (plus the y here); the camera looks down
+// steeply, so a high arrow lands on screen over whatever stands behind the target
+// (the camper beyond the fire, empty sky above the wood pile). Pulled low, and the
+// fire one nearer the player, so its tip sits on the thing it points at.
+const FIRE_TARGET = new THREE.Vector3(0, -1.6, 0.8);
+function coachCurrent() {
+  const c = state.coach, f = state.fire, t = state.t;
+  const sig = `${player.carrying}|${f.drops}|${state.gasUsed}|${state.stick.held}|${state.pokeAnim > 0}`;
+  if (sig !== c.sig) { c.sig = sig; c.lastAct = t; }
+  const act = isTouch ? "tap the big button" : "press Space";
+  const at = (v, text) => ({ text, target: v });
+  const woodAt = new THREE.Vector3(LAYOUT.woodPile.x, -1.2, LAYOUT.woodPile.z);
+  if (f.drops === 0) {
+    if (t < COACH.introAfter) return null;
+    if (player.carrying === "log") return at(FIRE_TARGET, `Carry the log to the fire, then ${act}.`);
+    if (!player.carrying && state.wood > 0) return at(woodAt, `Walk to the wood pile and ${act} to grab a log.`);
+    return null;
+  }
+  if (c.nudge) {
+    if (c.lastAct > c.nudge.since || t > c.nudge.until) { c.nudge = null; c.nextNudge = t + COACH.repeatSeconds; }
+    else return c.nudge;
+  }
+  if (t - c.lastAct < COACH.idleSeconds || f.level >= COACH.fireBelow || t < c.nextNudge) return null;
+  let n = null;
+  if (player.carrying === "log") n = at(FIRE_TARGET, "You're holding a log. Carry it to the fire.");
+  else if (player.carrying === "gas") n = at(FIRE_TARGET, "Carry the gas to the fire for a big flare.");
+  else if (!player.carrying && state.wood > 0) n = at(woodAt, "The fire is dying. Grab a log from the wood pile.");
+  else if (!player.carrying && state.stick.held) n = at(FIRE_TARGET, "Out of wood. Poke the fire with the stick.");
+  else if (!player.carrying) n = at(new THREE.Vector3(LAYOUT.stick.x, -1.2, LAYOUT.stick.z), "Out of wood. Grab the poker stick, then poke the fire.");
+  if (!n) return null;
+  c.nudge = { text: n.text, target: n.target, since: t, until: t + COACH.showSeconds };
+  return c.nudge;
+}
+let coachShown = "";
+function setCoachText(text) {
+  if (text === coachShown) return;
+  coachShown = text; ui.coach.textContent = text; ui.coach.hidden = !text;
+}
+
 function updateHints(dt) {
   const h = state.hints, f = state.fire.level, t = state.t;
+  const co = coachCurrent();
+  if (co) {
+    hintArrow.visible = true;
+    hintArrow.position.set(co.target.x, 2.6 + co.target.y + Math.sin(t * 4) * 0.25, co.target.z);
+    hintArrow.rotation.y = t * 1.5;
+    setCoachText(co.text);
+    return;
+  }
+  setCoachText("");
   if (h.target && t < h.until) {
     hintArrow.visible = true;
     hintArrow.position.set(h.target.x, 2.6 + Math.sin(t * 4) * 0.25, h.target.z);
@@ -2964,6 +3021,7 @@ function checkEnd() {
 
 function endNight(alone) {
   state.phase = "end";
+  setCoachText("");
   if (alone) stopMusic(2); else playDawn();
   const at = campers.filter((c) => c.state === "seated" || c.state === "leaving" || c.state === "arriving").map((c) => c.data.name);
   const bed = campers.filter((c) => c.state === "gone" || c.state === "walking").map((c) => c.data.name);
@@ -3378,12 +3436,13 @@ function renderSpeechMarker(el, lane) {
 
 // ---------- Banner ----------
 let bannerTimer = null;
-function showBanner(text) {
+function showBanner(text, longSeconds = 0) {
   const el = ui.banner;
   el.textContent = text;
   el.hidden = false;
-  el.classList.remove("show"); void el.offsetWidth; el.classList.add("show");
+  el.classList.remove("show"); el.classList.toggle("long", longSeconds > 0); void el.offsetWidth; el.classList.add("show");
   clearTimeout(bannerTimer);
+  if (longSeconds > 0) { bannerTimer = setTimeout(() => { el.hidden = true; }, longSeconds * 1000 + (isTouch ? 0 : 200)); return; }
   // Smaller and faster on phones (Bryan: "banners should also be ... fade
   // faster"); the CSS animation-duration is shortened to match in styles.css.
   bannerTimer = setTimeout(() => { el.hidden = true; }, isTouch ? 1700 : 2600);

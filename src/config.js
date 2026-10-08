@@ -171,6 +171,18 @@ export const HINTS = {
   showSeconds: 7,
 };
 
+// The coach (Bryan, 10/08/2026: Tom S couldn't figure the game out). A banner at
+// the start of play, a first-log walkthrough until the first log lands, then a
+// nudge when the fire is sinking and nothing useful has happened for a while.
+export const COACH = {
+  bannerSeconds: 3.6,    // "KEEP THE FIRE GOING" at the start of play
+  introAfter: 3.8,       // first-log walkthrough starts once the banner is gone
+  idleSeconds: 12,       // no grab/drop/pour/poke for this long counts as lost
+  fireBelow: 55,         // ...but only nudge while the fire is actually sinking
+  showSeconds: 9,        // how long a nudge stays up if the player does nothing
+  repeatSeconds: 14,     // pause before the next nudge
+};
+
 export const SMOKE = {
   reach: 6.0,           // how far downwind the smoke stream traps you during a gust
   halfWidth: 1.0,

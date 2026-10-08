@@ -166,10 +166,17 @@ html, body { margin: 0; height: 100%; background: #0b1020; color: #f3e9d2; font-
 .title-board { opacity: 0; animation: fadeUp 0.8s ease-out 2.7s forwards; }
 .title-board .board { background: rgba(20,28,48,0.7); border-radius: 10px; }
 
+/* ---------- Coach pill: the one next step, shown when a player seems lost ---------- */
+.coach { position: absolute; left: 50%; bottom: 88px; transform: translateX(-50%); width: max-content; max-width: min(560px, calc(100vw - 32px)); text-align: center; padding: 9px 18px; border-radius: 12px; background: rgba(20, 28, 48, 0.9); border: 2px solid #ffd98a; color: #fff3d6; font-weight: 800; font-size: 18px; letter-spacing: 0.02em; box-shadow: 0 0 18px rgba(255,140,26,0.45); animation: coachPulse 1.8s ease-in-out infinite; }
+.coach[hidden] { display: none; }
+@keyframes coachPulse { 0%, 100% { box-shadow: 0 0 10px rgba(255,140,26,0.35); } 50% { box-shadow: 0 0 24px rgba(255,170,60,0.75); } }
+body.touch .coach { font-size: 14px; padding: 6px 12px; bottom: 76px; max-width: calc(100vw - 260px); }
+
 /* ---------- Tier banner ---------- */
 .banner { position: absolute; top: 38%; left: 50%; transform: translate(-50%, -50%) scale(0.6); font-family: "Luckiest Guy", "Trebuchet MS", sans-serif; font-size: 56px; letter-spacing: 0.06em; color: #ffd98a; text-shadow: 0 4px 0 #7a2e10, 0 0 30px rgba(255,140,26,0.8); opacity: 0; white-space: nowrap; }
 .banner[hidden] { display: none; }
 .banner.show { animation: bannerPop 2.6s ease-out forwards; }
+.banner.show.long { animation-duration: 3.8s; }
 @keyframes bannerPop { 0% { opacity: 0; transform: translate(-50%, -50%) scale(0.6); } 12% { opacity: 1; transform: translate(-50%, -50%) scale(1.1); } 20% { transform: translate(-50%, -50%) scale(1); } 80% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%, -60%) scale(1); } }
 
 /* ---------- Camper picker ---------- */
@@ -349,6 +356,7 @@ body.touch.swap-controls .action-btn { right: auto; left: max(26px, env(safe-are
 body.touch #bubbles { display: none; }
 body.touch .banner { font-size: 32px; }
 body.touch .banner.show { animation-duration: 1.7s; }
+body.touch .banner.show.long { animation-duration: 3.2s; }
 
 /* ---------- Speech strip (touch only): camper/ticker lines stacked under the
    top HUD strip, newest on top, at most two rows. Desktop keeps the floating
