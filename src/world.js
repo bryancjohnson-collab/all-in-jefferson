@@ -4,14 +4,14 @@
 import * as THREE from "three";
 import { mergeGeometries, mergeVertices } from "three/addons/utils/BufferGeometryUtils.js";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
-import { LAYOUT, FIRE, FILL, REFINED_CAMPERS, TRUCK } from "./config.js?v=161";
-import { makeTruckRoadProbe } from "./truck.js?v=161";
-import { spawnModel, lerpColor, mulberry32, buildCabin, buildCooler, buildGasCan, buildCampChair, buildPokerStick } from "./props.js?v=161";
-import { buildTravelTrailer } from "./trailer.js?v=161";
-import { buildFire } from "./fire.js?v=161";
-import { buildAmbient } from "./ambient.js?v=161";
-import { buildCampLights } from "./camplights.js?v=161";
-import { buildGroundDetail } from "./ground.js?v=161";
+import { LAYOUT, FIRE, FILL, REFINED_CAMPERS, TRUCK } from "./config.js?v=162";
+import { makeTruckRoadProbe } from "./truck.js?v=162";
+import { spawnModel, lerpColor, mulberry32, buildCabin, buildCooler, buildGasCan, buildCampChair, buildPokerStick } from "./props.js?v=162";
+import { buildTravelTrailer } from "./trailer.js?v=162";
+import { buildFire } from "./fire.js?v=162";
+import { buildAmbient } from "./ambient.js?v=162";
+import { buildCampLights } from "./camplights.js?v=162";
+import { buildGroundDetail } from "./ground.js?v=162";
 
 export function buildWorld(canvas) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -1229,7 +1229,8 @@ function buildHeadCore(look) {
       head.add(new THREE.Mesh(hairFringeGeo, hairMat));
     }
   } else {
-    if (hasHair) head.add(new THREE.Mesh(hairPeekGeo, solidMaterial(look.hair.color)));
+    // hairPeek: false drops the sideburns and nape (Scott K, Bryan 10/08/2026: they read as facial hair).
+    if (hasHair && look.hairPeek !== false) head.add(new THREE.Mesh(hairPeekGeo, solidMaterial(look.hair.color)));
     if (hatType === "beanie") {
       const dome = new THREE.Mesh(beanieDomeGeo, solidMaterial(look.cap));
       const band = new THREE.Mesh(beanieBandGeo, solidMaterial(shade(look.cap, 0.8)));

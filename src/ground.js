@@ -13,9 +13,9 @@
 // nothing casts a shadow, nothing is collidable, nothing is interactive.
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { LAYOUT, TRUCK } from "./config.js?v=161";
-import { buildTruckPath, makeTruckRoadProbe } from "./truck.js?v=161";
-import { mulberry32 } from "./props.js?v=161";
+import { LAYOUT, TRUCK } from "./config.js?v=162";
+import { buildTruckPath, makeTruckRoadProbe } from "./truck.js?v=162";
+import { mulberry32 } from "./props.js?v=162";
 
 const BASE_GREEN = "#2f4a1f";   // world.js's ground mesh colour; the rim of this disc must match it
 const HALF = 19;                // disc radius in world units (the ground mesh is 30; fog hides the rest)

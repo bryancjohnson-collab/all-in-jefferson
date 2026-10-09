@@ -1,14 +1,14 @@
 // All In Jefferson, prototype 1: the fire loop on a flat plane with box campers.
 import * as THREE from "three";
-import { NIGHT_SECONDS, NIGHT_START_MIN, NIGHT_END_MIN, MIDNIGHT_MIN, FIRE, WIND, CAMPER, BEAR, PLAYER, LAYOUT, POWERUPS, EVENTS, HOT_LEVELS, SMOKE, DIFFICULTY, HINTS, COACH, PHONE_FOLLOW, KEG, HEAT, HEADLAMP, TRUCK, COLLIDE } from "./config.js?v=161";
-import { initSound, unlockSound, uiClick, coyoteYip, whoosh, growl, bang, startCrackle, setCrackle, footstep, logLand, pokeSound, buzz, playIntroThenLoop, startLoop, stopMusic, playDawn, toggleMusic, musicEnabled, musicActive, bearTheme, bearRideTheme, bearWomp, duckMusic, hissSteam, truckRumble, truckDoorThunk } from "./sound.js?v=161";
-import { campers as roster, pickPlayer, commitPick, snacks, emotes, comments, coolerComments, kegCheers, kegFireYell, sung, donSecondLine, fireBreathYell } from "./campers.js?v=161";
-import { buildWorld, makeCamperMesh, makeChairMesh, makeLogMesh, makePalletMesh, setSeated, stepWalkCycle, stepBearWalk, SEATED_DROP, setExpression } from "./world.js?v=161";
-import { buildMiniKeg, buildGuitar, buildTrumpet, buildBourbonGlass, buildYogurtCup, buildCheesePuffsBag, buildCoffeeMug, buildWaterSkis, buildFlightHelmet, buildCornholeSet, buildYetiTumbler, buildSpoon } from "./props.js?v=161";
-import { buildPickupTruck, buildTruckPath, TRUCK_GEOM } from "./truck.js?v=161";
-import { updateFireVisuals } from "./fire.js?v=161";
-import { SMOKE_LOOK } from "./config.js?v=161";
-import { initShareCardButtons } from "./sharecard.js?v=161";
+import { NIGHT_SECONDS, NIGHT_START_MIN, NIGHT_END_MIN, MIDNIGHT_MIN, FIRE, WIND, CAMPER, BEAR, PLAYER, LAYOUT, POWERUPS, EVENTS, HOT_LEVELS, SMOKE, DIFFICULTY, HINTS, COACH, PHONE_FOLLOW, KEG, HEAT, HEADLAMP, TRUCK, COLLIDE } from "./config.js?v=162";
+import { initSound, unlockSound, uiClick, coyoteYip, whoosh, growl, bang, startCrackle, setCrackle, footstep, logLand, pokeSound, buzz, playIntroThenLoop, startLoop, stopMusic, playDawn, toggleMusic, musicEnabled, musicActive, bearTheme, bearRideTheme, bearWomp, duckMusic, hissSteam, truckRumble, truckDoorThunk } from "./sound.js?v=162";
+import { campers as roster, pickPlayer, commitPick, snacks, emotes, comments, coolerComments, kegCheers, kegFireYell, sung, donSecondLine, fireBreathYell } from "./campers.js?v=162";
+import { buildWorld, makeCamperMesh, makeChairMesh, makeLogMesh, makePalletMesh, setSeated, stepWalkCycle, stepBearWalk, SEATED_DROP, setExpression } from "./world.js?v=162";
+import { buildMiniKeg, buildGuitar, buildTrumpet, buildBourbonGlass, buildYogurtCup, buildCheesePuffsBag, buildCoffeeMug, buildWaterSkis, buildFlightHelmet, buildCornholeSet, buildYetiTumbler, buildSpoon } from "./props.js?v=162";
+import { buildPickupTruck, buildTruckPath, TRUCK_GEOM } from "./truck.js?v=162";
+import { updateFireVisuals } from "./fire.js?v=162";
+import { SMOKE_LOOK } from "./config.js?v=162";
+import { initShareCardButtons } from "./sharecard.js?v=162";
 
 const canvas = document.getElementById("scene");
 const world = buildWorld(canvas);
@@ -548,8 +548,7 @@ function placePropAtChair(spec, base) {
 // here has to re-track the hand per frame, only toggle .visible. Skipped for
 // Perry (tossing single puffs, not the bag), Johnny D (throwing motion,
 // no separate single-bean-bag mesh), and Brian R (skis were not asked to be
-// held); Scott K's helmet is handled separately below since it swaps onto
-// the head, not a hand. Tom S holds a Yeti-style tumbler for his "Yeti
+// held); Scott K's emote holds nothing (his cap stays on). Tom S holds a Yeti-style tumbler for his "Yeti
 // Cheers" emote (09/27: replaces the old coffee-mug-on-the-forearm look,
 // which read like a bloody arm injury); his chairside ground prop stays the
 // coffee mug (PROP_BUILDERS above), so the two props are deliberately
@@ -630,31 +629,11 @@ function buildCrew(data) {
     }
     return c;
   });
-  // Scott K's flight helmet doubles as a lobby-emote prop (Black Hawk): built
-  // once per pick, parented to his own head so it inherits the head's tilt,
-  // hidden by default and only shown (with his cap swapped off) in
-  // animateEmote below. Skipped for any other pick.
+  // Scott K's Black Hawk emote used to swap his cap for a flight helmet; that left
+  // him looking bald (Bryan 10/08/2026), so his own baseball cap stays on. The
+  // helmet is now only his chairside ground prop. helmetMesh stays null; the
+  // resets below are guarded on it.
   player.helmetMesh = null;
-  if (data.id === "scott-k") {
-    const helmet = buildFlightHelmet();
-    // buildFlightHelmet() is authored for the ground rig (sitting upright,
-    // visor facing outward at ground height); worn on the head the visor
-    // needs to drop down and forward over the eyes or it just reads as a
-    // plain dome. helmet.children is [shell, visor] (see buildFlightHelmet).
-    helmet.children[1].position.y -= 0.05;
-    helmet.children[1].position.z += 0.025;
-    helmet.scale.setScalar(1.12);
-    helmet.visible = false;
-    // Sits lower than CAP_Y_OFFSET on purpose: the ground rig's dome only
-    // spans from its own ground contact up to its crown (its full height),
-    // so anchoring it at cap height leaves the whole thing floating above
-    // the face with nothing at eye level. Dropping it here brings the
-    // visor down near the brow instead of sitting like a snug beanie.
-    helmet.position.y = 0.18;
-    helmet.position.z = 0.01;
-    player.mesh.userData.parts.head.add(helmet);
-    player.helmetMesh = helmet;
-  }
   // Lobby-emote hand prop (see HELD_PROP_BUILDERS above): same idea, parented
   // to the matching arm's elbow instead of the head.
   player.heldProp = null;
@@ -1368,10 +1347,9 @@ function animateEmote(pl, t) {
       p.body.rotation.x = -0.15; p.head.rotation.x = -0.35 + Math.sin(t * 9) * 0.06;
       m.position.y = Math.abs(Math.sin(t * 7)) * 0.07;
       if (pl.heldProp) pl.heldProp.visible = true; break;
-    case "scott-k": // black hawk: arms out, spin, hover, helmet swapped in for his cap
+    case "scott-k": // black hawk: arms out, spin, hover, cap stays on
       p.armL.rotation.z = -1.5; p.armR.rotation.z = 1.5;   // signs swapped 09/25: the old ones folded the arms behind his chest
-      m.rotation.y = t * 4.5; m.position.y = 0.35 + Math.sin(t * 2) * 0.12;
-      if (pl.helmetMesh) { pl.helmetMesh.visible = true; if (p.cap) p.cap.visible = false; } break;
+      m.rotation.y = t * 4.5; m.position.y = 0.35 + Math.sin(t * 2) * 0.12; break;
     default:
       m.position.y = bob;
   }

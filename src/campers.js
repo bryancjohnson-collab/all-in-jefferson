@@ -36,7 +36,7 @@ export const campers = [
     look: { build: "slim", top: "fleece", topColor: "#2f6b46", pants: "black", cap: "#8fd694", hair: { color: "#6b4423" } },
     warm: "Please turn up Hell's Anus a notch!", cold: "My toes are colder than my trumpet mouthpiece in December!", leaving: "I'll be right back...really..." },
   { id: "scott-k", name: "Scott K", cap: "#264653", shirt: "#e76f51", bearFirst: true,
-    look: { build: "slim", top: "hoodie", topColor: "#4a4038", graphic: { color: "#f4f1ea", shape: "circle" }, pants: "gray", cap: "#5b5a34", glasses: "dark", hair: { color: "#241c15" } },
+    look: { build: "slim", top: "hoodie", topColor: "#4a4038", graphic: { color: "#f4f1ea", shape: "circle" }, pants: "gray", cap: "#5b5a34", glasses: "dark", hair: { color: "#241c15" }, hairPeek: false },
     warm: "I know how to ride Black Hawks better than anyone.", cold: "Black Hawks have heaters, you know.", leaving: "Early flight. I'm out." },
 ];
 
