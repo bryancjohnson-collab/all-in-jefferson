@@ -28,7 +28,7 @@ export const campers = [
     look: { build: "slim", top: "quarterzip", topColor: "#7d8791", pants: "jeans", hair: { color: "#e8e8e0" }, cap: "#1f6f6b", hat: "bucket", watch: true },
     warm: "Going live on cornhole!", cold: "Winners don't sit in the cold.", leaving: "Rematch tomorrow. I'm out." },
   { id: "spitty", name: "Spitty", cap: "#9d4edd", shirt: "#ffafcc",
-    look: { build: "big", top: "longsleeve", topColor: "#5c6b3f", pants: "jeans", hair: "bald", cap: "#d6478a", hat: "beanie" },
+    look: { build: "big", top: "longsleeve", topColor: "#5c6b3f", pants: "jeans", hair: "bald" },
     // leaving line is Bryan's (09/27/2026), verbatim, replacing the earlier
     // "I'm taking the yogurt to bed." -- see docs/CAMPERS.md.
     warm: "Bologna Yogurt anyone?", cold: "My yogurt's colder than frozen bologna.", leaving: "All right boys, I'm out" },

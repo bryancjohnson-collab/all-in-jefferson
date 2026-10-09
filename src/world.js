@@ -4,14 +4,14 @@
 import * as THREE from "three";
 import { mergeGeometries, mergeVertices } from "three/addons/utils/BufferGeometryUtils.js";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
-import { LAYOUT, FIRE, FILL, REFINED_CAMPERS, TRUCK } from "./config.js?v=162";
-import { makeTruckRoadProbe } from "./truck.js?v=162";
-import { spawnModel, lerpColor, mulberry32, buildCabin, buildCooler, buildGasCan, buildCampChair, buildPokerStick } from "./props.js?v=162";
-import { buildTravelTrailer } from "./trailer.js?v=162";
-import { buildFire } from "./fire.js?v=162";
-import { buildAmbient } from "./ambient.js?v=162";
-import { buildCampLights } from "./camplights.js?v=162";
-import { buildGroundDetail } from "./ground.js?v=162";
+import { LAYOUT, FIRE, FILL, REFINED_CAMPERS, TRUCK } from "./config.js?v=163";
+import { makeTruckRoadProbe } from "./truck.js?v=163";
+import { spawnModel, lerpColor, mulberry32, buildCabin, buildCooler, buildGasCan, buildCampChair, buildPokerStick } from "./props.js?v=163";
+import { buildTravelTrailer } from "./trailer.js?v=163";
+import { buildFire } from "./fire.js?v=163";
+import { buildAmbient } from "./ambient.js?v=163";
+import { buildCampLights } from "./camplights.js?v=163";
+import { buildGroundDetail } from "./ground.js?v=163";
 
 export function buildWorld(canvas) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
